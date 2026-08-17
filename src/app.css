@@ -1,19 +1,22 @@
 :root {
-	/* Papier & Tinte - warme, gedruckte Anmutung statt Bildschirmweiß */
-	--papier: #f4efe6;
-	--papier-tief: #ebe3d6;
-	--tinte: #17130f;
-	--tinte-weich: #4a4139;
-	--tinte-zart: #877b6d;
-	--zinnober: #c04b2a;
-	--petrol: #1d4b47;
-	--linie: #d6cbb9;
+	/* Cool, precise, near-neutral. One electric accent, used sparingly. */
+	--paper: #fbfbfc;
+	--paper-sunk: #f4f4f6;
+	--ink: #0a0a0b;
+	--ink-soft: #4d4d57;
+	--ink-faint: #8b8b96;
+	--hairline: #e5e5ea;
+	--hairline-strong: #d2d2da;
+	--accent: #2136e8;
+	--accent-wash: rgba(33, 54, 232, 0.07);
+	--signal: #0f7a4e;
 
-	--serif: 'Fraunces', Georgia, serif;
-	--text: 'Newsreader', Georgia, serif;
-	--mono: 'JetBrains Mono', ui-monospace, monospace;
+	--display: 'Instrument Serif', Georgia, serif;
+	--ui: 'Manrope', system-ui, sans-serif;
+	--mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-	--rand: 1100px;
+	--edge: 1160px;
+	--ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 *,
@@ -25,42 +28,26 @@
 html {
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+	scroll-behavior: smooth;
 }
 
 body {
 	margin: 0;
-	background-color: var(--papier);
-	/* Feines Raster + Vignette: gibt dem Papier Textur ohne Bilddateien */
-	background-image:
-		radial-gradient(circle at 12% 8%, rgba(192, 75, 42, 0.07), transparent 42%),
-		radial-gradient(circle at 88% 0%, rgba(29, 75, 71, 0.08), transparent 38%),
-		linear-gradient(var(--linie) 1px, transparent 1px),
-		linear-gradient(90deg, var(--linie) 1px, transparent 1px);
-	background-size:
-		100% 100%,
-		100% 100%,
-		96px 96px,
-		96px 96px;
-	background-position:
-		0 0,
-		0 0,
-		-1px -1px,
-		-1px -1px;
-	color: var(--tinte);
-	font-family: var(--text);
-	font-size: 18px;
-	line-height: 1.6;
-	font-optical-sizing: auto;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--ui);
+	font-size: 16px;
+	line-height: 1.55;
+	font-feature-settings: 'ss01', 'cv01';
 }
 
 h1,
 h2,
 h3 {
-	font-family: var(--serif);
-	font-optical-sizing: auto;
-	letter-spacing: -0.02em;
-	line-height: 1.05;
 	margin: 0;
+	font-weight: 400;
+	letter-spacing: -0.015em;
+	line-height: 1.02;
 	text-wrap: balance;
 }
 
@@ -70,17 +57,52 @@ p {
 }
 
 a {
-	color: var(--zinnober);
-	text-decoration-thickness: 1px;
+	color: inherit;
+	text-decoration-color: var(--hairline-strong);
 	text-underline-offset: 3px;
+	text-decoration-thickness: 1px;
+	transition: text-decoration-color 160ms var(--ease);
+}
+
+a:hover {
+	text-decoration-color: var(--accent);
+}
+
+/* Numbers must not shimmy when they change */
+.tabular {
+	font-variant-numeric: tabular-nums;
+}
+
+/* One orchestrated page load, staggered via --i */
+@keyframes rise {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.rise {
+	opacity: 0;
+	animation: rise 800ms var(--ease) forwards;
+	animation-delay: calc(var(--i, 0) * 70ms);
 }
 
 @media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
 	*,
 	*::before,
 	*::after {
 		animation-duration: 0.01ms !important;
-		animation-iteration-count: 1 !important;
+		animation-delay: 0ms !important;
 		transition-duration: 0.01ms !important;
+	}
+	.rise {
+		opacity: 1;
 	}
 }

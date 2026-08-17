@@ -8,14 +8,14 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>InterfaceKit für Svelte</title>
+	<title>InterfaceKit for Svelte</title>
 	<meta
 		name="description"
-		content="InterfaceKit in SvelteKit: Elemente im Browser auswählen, Stile anpassen, Änderungen als Prompt kopieren."
+		content="Pick an element, restyle it in the browser, copy the changes as a prompt. InterfaceKit wired into SvelteKit."
 	/>
 </svelte:head>
 
 {@render children()}
 
-<!-- Läuft nur im Dev-Modus und rendert in einen eigenen Shadow Root. -->
+<!-- Dev-only. Renders into its own shadow root. -->
 <InterfaceKit />
