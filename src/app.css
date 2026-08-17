@@ -1,0 +1,86 @@
+:root {
+	/* Papier & Tinte - warme, gedruckte Anmutung statt Bildschirmweiß */
+	--papier: #f4efe6;
+	--papier-tief: #ebe3d6;
+	--tinte: #17130f;
+	--tinte-weich: #4a4139;
+	--tinte-zart: #877b6d;
+	--zinnober: #c04b2a;
+	--petrol: #1d4b47;
+	--linie: #d6cbb9;
+
+	--serif: 'Fraunces', Georgia, serif;
+	--text: 'Newsreader', Georgia, serif;
+	--mono: 'JetBrains Mono', ui-monospace, monospace;
+
+	--rand: 1100px;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+body {
+	margin: 0;
+	background-color: var(--papier);
+	/* Feines Raster + Vignette: gibt dem Papier Textur ohne Bilddateien */
+	background-image:
+		radial-gradient(circle at 12% 8%, rgba(192, 75, 42, 0.07), transparent 42%),
+		radial-gradient(circle at 88% 0%, rgba(29, 75, 71, 0.08), transparent 38%),
+		linear-gradient(var(--linie) 1px, transparent 1px),
+		linear-gradient(90deg, var(--linie) 1px, transparent 1px);
+	background-size:
+		100% 100%,
+		100% 100%,
+		96px 96px,
+		96px 96px;
+	background-position:
+		0 0,
+		0 0,
+		-1px -1px,
+		-1px -1px;
+	color: var(--tinte);
+	font-family: var(--text);
+	font-size: 18px;
+	line-height: 1.6;
+	font-optical-sizing: auto;
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--serif);
+	font-optical-sizing: auto;
+	letter-spacing: -0.02em;
+	line-height: 1.05;
+	margin: 0;
+	text-wrap: balance;
+}
+
+p {
+	margin: 0;
+	text-wrap: pretty;
+}
+
+a {
+	color: var(--zinnober);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
