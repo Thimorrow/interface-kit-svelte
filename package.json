@@ -23,6 +23,6 @@
   "dependencies": {
     "interface-kit": "^0.1.3"
   },
-  "description": "Svelte-Anbindung für interface-kit von Josh Puckett, inklusive Fix für die Popover im Shadow DOM",
+  "description": "Svelte binding for interface-kit by Josh Puckett, including a fix for its popovers inside the shadow root",
   "license": "MIT"
 }
