@@ -91,7 +91,7 @@ InterfaceKit itself never repositions a node. The Layout tab writes width, heigh
 
 Select an element, then:
 
-- **Drag it.** The drag engages after 3px, so a short click still selects. The box follows the pointer with a light spring (mass), then eases into place on release. Edges and centers **snap** to nearby boxes within 6px (left / center / right, top / middle / bottom). Hold **⌘** (Ctrl on Windows) to move freely.
+- **Drag it.** The drag engages after 3px, so a short click still selects. The box sticks to the pointer (no spring lag). Edges and centers **snap** to nearby boxes within 6px (left / center / right, top / middle / bottom). Hold **⌘** (Ctrl on Windows) to move freely.
 - **Drag a handle** to resize. The dragged edges snap the same way. Corner handles with **Shift** lock aspect ratio; **⌘** still releases the magnet. West / north handles also write `translate` so the opposite edge stays put.
 - **Arrow keys** nudge by 1px, **Shift + arrow** by 10px.
 - **Escape** cancels a drag in progress and puts the element back.
@@ -155,7 +155,7 @@ There is no Active / Disabled set in this version.
 
 The package only lets you drag the collapsed paintbrush. With the kit open, grab the **Copy Edits** bar to move the inspector. The Style / Layout panel (and Settings) stay attached.
 
-A short click still hits Copy Edits, delete, settings and close; the drag engages after 5px. The panel follows with the same spring as the selection. Escape cancels a drag in progress. Closing the kit puts the panel back in the corner.
+A short click still hits Copy Edits, delete, settings and close; the drag engages after 5px. The panel follows with a light spring. Escape cancels a drag in progress. Closing the kit puts the panel back in the corner.
 
 ## Keyboard
 

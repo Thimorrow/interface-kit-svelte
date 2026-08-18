@@ -360,11 +360,7 @@ export function enableMoveSelected(
   }
 
   function applyMotion(round: boolean): void {
-    if (!motion || !gesture) return;
-    if (gesture.kind === 'move') {
-      moveTo(gesture.el, motion.x.current, motion.y.current, round);
-      return;
-    }
+    if (!motion || !gesture || gesture.kind !== 'resize') return;
     applyBox(
       gesture.el,
       {
@@ -426,12 +422,18 @@ export function enableMoveSelected(
     doc.addEventListener('pointermove', onPointerMove, true);
     doc.addEventListener('pointerup', onPointerUp, true);
     doc.addEventListener('pointercancel', onPointerUp, true);
+    doc.addEventListener('dragstart', onNativeDragStart, true);
   }
 
   function unbindDrag(): void {
     doc.removeEventListener('pointermove', onPointerMove, true);
     doc.removeEventListener('pointerup', onPointerUp, true);
     doc.removeEventListener('pointercancel', onPointerUp, true);
+    doc.removeEventListener('dragstart', onNativeDragStart, true);
+  }
+
+  function onNativeDragStart(event: DragEvent): void {
+    event.preventDefault();
   }
 
   function handleFromEvent(event: Event): ResizeHandle | null {
@@ -555,12 +557,6 @@ export function enableMoveSelected(
         gesture.started = true;
         controller.startStyleInteraction();
         beginBodyStyle('move');
-        beginMotion({
-          x: gesture.base.x,
-          y: gesture.base.y,
-          width: gesture.startRect.width,
-          height: gesture.startRect.height,
-        });
       }
       event.preventDefault();
       applyMove(gesture, dx, dy, skipSnapFrom(event));
@@ -589,13 +585,7 @@ export function enableMoveSelected(
     setActiveSnap(snap);
     const x = Math.round(current.base.x + dx + snap.dx);
     const y = Math.round(current.base.y + dy + snap.dy);
-    if (!motion) {
-      moveTo(current.el, x, y);
-      return;
-    }
-    motion.x.target = x;
-    motion.y.target = y;
-    kickSpring();
+    moveTo(current.el, x, y);
   }
 
   function applyResize(
