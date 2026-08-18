@@ -91,7 +91,7 @@ InterfaceKit itself never repositions a node. The Layout tab writes width, heigh
 
 Select an element, then:
 
-- **Drag it.** The drag engages after 3px, so a short click still selects. The box sticks to the pointer (no spring lag). Edges and centers **snap** to nearby boxes within 6px (left / center / right, top / middle / bottom). Hold **⌘** (Ctrl on Windows) to move freely.
+- **Drag it.** The drag engages after 3px, so a short click still selects. The box sticks to the pointer (no spring lag). Edges and centers **snap** to nearby boxes within 6px. Same-edge alignments (left-to-left) beat flush (left-to-right); overlapping neighbors beat distant ones; a midline never steals an edge. Hold **⌘** (Ctrl on Windows) to move freely.
 - **Drag a handle** to resize. The dragged edges snap the same way. Corner handles with **Shift** lock aspect ratio; **⌘** still releases the magnet. West / north handles also write `translate` so the opposite edge stays put.
 - **Arrow keys** nudge by 1px, **Shift + arrow** by 10px.
 - **Escape** cancels a drag in progress and puts the element back.
@@ -108,7 +108,7 @@ Pass `movable={false}` to turn drag and handles off.
 
 While the brush is active, hovering an element draws six viewport-spanning lines from its box: left, center and right (vertical), top, center and bottom (horizontal). Use them to check whether other elements share an edge or a midline.
 
-The same guides stay on the selected element, so they keep tracking while you drag or resize. Center lines are dashed; edges are solid. Both use the kit’s hover blue.
+The same guides stay on the selected element, so they keep tracking while you drag or resize. Center lines are dashed; edges are solid. Both use the kit’s hover blue. While a snap is holding, only the lines that actually caught stay visible.
 
 Pass `guides={false}` to turn them off.
 

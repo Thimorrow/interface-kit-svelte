@@ -44,6 +44,9 @@ const GUIDE_CSS = `[data-ik-guides] {
   stroke-opacity: 1;
   stroke-width: 1.5;
 }
+[data-ik-guides][data-snapping] line:not([data-snapped]) {
+  stroke-opacity: 0;
+}
 `;
 
 /**
@@ -204,6 +207,12 @@ function placeGuides(
   markSnapped(svg, 'h-top', active.horizontal.includes('top'));
   markSnapped(svg, 'h-center', active.horizontal.includes('center'));
   markSnapped(svg, 'h-bottom', active.horizontal.includes('bottom'));
+
+  if (active.vertical.length > 0 || active.horizontal.length > 0) {
+    svg.setAttribute('data-snapping', '');
+  } else {
+    svg.removeAttribute('data-snapping');
+  }
 
   svg.style.display = 'block';
 }

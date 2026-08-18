@@ -2,6 +2,11 @@
  * Light alignment snap for InterfaceKit drag and resize. Pure so the
  * threshold math can be pinned without mounting the overlay. Values are
  * CSS pixels.
+ *
+ * Catch order (lower score wins): nearest line, then same-edge over
+ * flush, then boxes that overlap on the other axis. Edge-to-center is
+ * ignored — centers only catch other centers, so a midline does not
+ * steal an edge alignment.
  */
 
 import { handleMoves, MIN_SIZE_PX, type ResizeHandle } from './transformGeometry.js';
@@ -15,6 +20,7 @@ export interface AlignRect {
 
 export type SnapEdgeX = 'left' | 'center' | 'right';
 export type SnapEdgeY = 'top' | 'center' | 'bottom';
+export type SnapKind = 'edge' | 'center';
 
 export interface SnapResult {
   dx: number;
@@ -36,6 +42,12 @@ export const SNAP_THRESHOLD_PX = 6;
  */
 export const SNAP_RESISTANCE_PX = 8;
 
+/** Midlines are easier to leave than edges, so they do not trap a drag. */
+export const SNAP_CENTER_RESISTANCE_PX = 3;
+
+/** Perpendicular gap above this no longer changes the score. */
+export const SNAP_NEAR_PX = 240;
+
 export const NO_SNAP: SnapResult = {
   dx: 0,
   dy: 0,
@@ -52,6 +64,8 @@ export interface AxisStick {
   shift: number;
   /** Line we just left; do not recatch it until we leave the catch zone. */
   ignore: number | null;
+  /** Edge wells hold longer than center wells. */
+  kind: SnapKind | null;
 }
 
 export interface SnapStick {
@@ -61,8 +75,8 @@ export interface SnapStick {
 
 export function createSnapStick(): SnapStick {
   return {
-    x: { lock: null, shift: 0, ignore: null },
-    y: { lock: null, shift: 0, ignore: null },
+    x: { lock: null, shift: 0, ignore: null, kind: null },
+    y: { lock: null, shift: 0, ignore: null, kind: null },
   };
 }
 
@@ -70,9 +84,11 @@ export function resetSnapStick(stick: SnapStick): void {
   stick.x.lock = null;
   stick.x.shift = 0;
   stick.x.ignore = null;
+  stick.x.kind = null;
   stick.y.lock = null;
   stick.y.shift = 0;
   stick.y.ignore = null;
+  stick.y.kind = null;
 }
 
 const X_EDGES: SnapEdgeX[] = ['left', 'center', 'right'];
@@ -115,43 +131,8 @@ export function snapRect(
 ): SnapResult {
   if (targets.length === 0) return NO_SNAP;
 
-  const mx = xEdges(moving);
-  const my = yEdges(moving);
-
-  let bestX = threshold;
-  let dx = 0;
-  let bestY = threshold;
-  let dy = 0;
-
-  for (const target of targets) {
-    const tx = xEdges(target);
-    const ty = yEdges(target);
-
-    for (const me of X_EDGES) {
-      for (const te of X_EDGES) {
-        const delta = tx[te] - mx[me];
-        const dist = Math.abs(delta);
-        if (dist < bestX) {
-          bestX = dist;
-          dx = delta;
-        }
-      }
-    }
-
-    for (const me of Y_EDGES) {
-      for (const te of Y_EDGES) {
-        const delta = ty[te] - my[me];
-        const dist = Math.abs(delta);
-        if (dist < bestY) {
-          bestY = dist;
-          dy = delta;
-        }
-      }
-    }
-  }
-
-  if (bestX >= threshold) dx = 0;
-  if (bestY >= threshold) dy = 0;
+  const dx = bestShift(moving, targets, 'x', threshold);
+  const dy = bestShift(moving, targets, 'y', threshold);
   if (dx === 0 && dy === 0) return NO_SNAP;
 
   const snapped: AlignRect = {
@@ -184,9 +165,16 @@ export function snapRectSticky(
   threshold: number = SNAP_THRESHOLD_PX,
   resistance: number = SNAP_RESISTANCE_PX,
 ): SnapResult {
-  const hold = threshold + resistance;
-  let left = releaseIfPushed(moving.left + stick.x.shift, stick.x, hold);
-  let top = releaseIfPushed(moving.top + stick.y.shift, stick.y, hold);
+  let left = releaseIfPushed(
+    moving.left + stick.x.shift,
+    stick.x,
+    holdFor(stick.x, threshold, resistance),
+  );
+  let top = releaseIfPushed(
+    moving.top + stick.y.shift,
+    stick.y,
+    holdFor(stick.y, threshold, resistance),
+  );
   clearIgnore(left, stick.x, threshold);
   clearIgnore(top, stick.y, threshold);
 
@@ -202,6 +190,7 @@ export function snapRectSticky(
     const snappedLeft = trial.left + caught.dx;
     if (caught.vertical.length > 0 && !sameLine(snappedLeft, stick.x.ignore)) {
       stick.x.lock = snappedLeft;
+      stick.x.kind = kindFrom(caught.vertical);
       left = snappedLeft;
     }
   } else {
@@ -212,6 +201,7 @@ export function snapRectSticky(
     const snappedTop = trial.top + caught.dy;
     if (caught.horizontal.length > 0 && !sameLine(snappedTop, stick.y.ignore)) {
       stick.y.lock = snappedTop;
+      stick.y.kind = kindFrom(caught.horizontal);
       top = snappedTop;
     }
   } else {
@@ -267,7 +257,9 @@ export function snapResize(
   if (moves.left || moves.right) {
     const x = snapAxis(
       { low: left, high: right, moveLow: moves.left, moveHigh: moves.right },
-      targets.map((target) => xEdges(target)),
+      moving,
+      targets,
+      'x',
       threshold,
     );
     left = x.low;
@@ -277,7 +269,9 @@ export function snapResize(
   if (moves.top || moves.bottom) {
     const y = snapAxis(
       { low: top, high: bottom, moveLow: moves.top, moveHigh: moves.bottom },
-      targets.map((target) => yEdges(target)),
+      moving,
+      targets,
+      'y',
       threshold,
     );
     top = y.low;
@@ -326,7 +320,6 @@ export function snapResizeSticky(
   resistance: number = SNAP_RESISTANCE_PX,
   minSize: number = MIN_SIZE_PX,
 ): SnapResult {
-  const hold = threshold + resistance;
   const moves = handleMoves(handle);
 
   let left = moving.left + (moves.left ? stick.x.shift : 0);
@@ -337,13 +330,21 @@ export function snapResizeSticky(
     moving.top + moving.height + (moves.bottom ? stick.y.shift : 0);
 
   if (moves.left || moves.right) {
-    const next = releaseIfPushed(moves.left ? left : right, stick.x, hold);
+    const next = releaseIfPushed(
+      moves.left ? left : right,
+      stick.x,
+      holdFor(stick.x, threshold, resistance),
+    );
     if (moves.left) left = next;
     else right = next;
     clearIgnore(next, stick.x, threshold);
   }
   if (moves.top || moves.bottom) {
-    const next = releaseIfPushed(moves.top ? top : bottom, stick.y, hold);
+    const next = releaseIfPushed(
+      moves.top ? top : bottom,
+      stick.y,
+      holdFor(stick.y, threshold, resistance),
+    );
     if (moves.top) top = next;
     else bottom = next;
     clearIgnore(next, stick.y, threshold);
@@ -367,6 +368,7 @@ export function snapResizeSticky(
         !sameLine(snappedEdge, stick.x.ignore)
       ) {
         stick.x.lock = snappedEdge;
+        stick.x.kind = kindFrom(caught.vertical);
         if (moves.left) left = snappedEdge;
         else right = snappedEdge;
       }
@@ -387,6 +389,7 @@ export function snapResizeSticky(
         !sameLine(snappedEdge, stick.y.ignore)
       ) {
         stick.y.lock = snappedEdge;
+        stick.y.kind = kindFrom(caught.horizontal);
         if (moves.top) top = snappedEdge;
         else bottom = snappedEdge;
       }
@@ -437,6 +440,21 @@ export function snapResizeSticky(
   };
 }
 
+function holdFor(
+  axis: AxisStick,
+  threshold: number,
+  resistance: number,
+): number {
+  const extra =
+    axis.kind === 'center' ? SNAP_CENTER_RESISTANCE_PX : resistance;
+  return threshold + extra;
+}
+
+function kindFrom(edges: readonly string[]): SnapKind {
+  const onlyCenter = edges.length > 0 && edges.every((edge) => edge === 'center');
+  return onlyCenter ? 'center' : 'edge';
+}
+
 function releaseIfPushed(
   pos: number,
   axis: AxisStick,
@@ -449,6 +467,7 @@ function releaseIfPushed(
   axis.shift -= dir * hold;
   axis.ignore = axis.lock;
   axis.lock = null;
+  axis.kind = null;
   return pos - dir * hold;
 }
 
@@ -462,45 +481,134 @@ function sameLine(value: number, ignore: number | null): boolean {
   return ignore !== null && Math.abs(value - ignore) < 0.51;
 }
 
+type PairKind = 'align' | 'flush' | 'mixed';
+
+function pairKind(a: string, b: string): PairKind {
+  if (a === b) return 'align';
+  if (a !== 'center' && b !== 'center') return 'flush';
+  return 'mixed';
+}
+
+function pairCost(kind: PairKind): number {
+  if (kind === 'align') return 0;
+  if (kind === 'flush') return 0.35;
+  return Number.POSITIVE_INFINITY;
+}
+
+function gapX(a: AlignRect, b: AlignRect): number {
+  const a2 = a.left + a.width;
+  const b2 = b.left + b.width;
+  if (a2 < b.left) return b.left - a2;
+  if (b2 < a.left) return a.left - b2;
+  return 0;
+}
+
+function gapY(a: AlignRect, b: AlignRect): number {
+  const a2 = a.top + a.height;
+  const b2 = b.top + b.height;
+  if (a2 < b.top) return b.top - a2;
+  if (b2 < a.top) return a.top - b2;
+  return 0;
+}
+
+function scoreOf(dist: number, kind: PairKind, gap: number): number {
+  const cost = pairCost(kind);
+  if (!Number.isFinite(cost)) return Number.POSITIVE_INFINITY;
+  return dist + cost + Math.min(gap, SNAP_NEAR_PX) / 80;
+}
+
+function axisEdges(rect: AlignRect, axis: 'x' | 'y'): Record<string, number> {
+  return axis === 'x' ? xEdges(rect) : yEdges(rect);
+}
+
+function bestShift(
+  moving: AlignRect,
+  targets: AlignRect[],
+  axis: 'x' | 'y',
+  threshold: number,
+): number {
+  const movingEdges = axisEdges(moving, axis);
+  const names = axis === 'x' ? X_EDGES : Y_EDGES;
+  let best = Number.POSITIVE_INFINITY;
+  let shift = 0;
+
+  for (const target of targets) {
+    const targetEdges = axisEdges(target, axis);
+    const gap = axis === 'x' ? gapY(moving, target) : gapX(moving, target);
+    for (const me of names) {
+      for (const te of names) {
+        const kind = pairKind(me, te);
+        if (kind === 'mixed') continue;
+        const delta = targetEdges[te] - movingEdges[me];
+        const dist = Math.abs(delta);
+        if (dist >= threshold) continue;
+        const score = scoreOf(dist, kind, gap);
+        if (score < best) {
+          best = score;
+          shift = delta;
+        }
+      }
+    }
+  }
+
+  return Number.isFinite(best) ? shift : 0;
+}
+
 function snapAxis(
   box: { low: number; high: number; moveLow: boolean; moveHigh: boolean },
-  targets: Record<string, number>[],
+  moving: AlignRect,
+  targets: AlignRect[],
+  axis: 'x' | 'y',
   threshold: number,
 ): { low: number; high: number } {
-  let best = threshold;
+  let best = Number.POSITIVE_INFINITY;
   let nextLow = box.low;
   let nextHigh = box.high;
   const center = (box.low + box.high) / 2;
+  const names = axis === 'x' ? X_EDGES : Y_EDGES;
+  const highName = axis === 'x' ? 'right' : 'bottom';
+  const lowName = axis === 'x' ? 'left' : 'top';
 
-  for (const edges of targets) {
-    for (const target of Object.values(edges)) {
+  const consider = (
+    dist: number,
+    kind: PairKind,
+    gap: number,
+    apply: () => void,
+  ): void => {
+    if (dist >= threshold) return;
+    const score = scoreOf(dist, kind, gap);
+    if (score < best) {
+      best = score;
+      apply();
+    }
+  };
+
+  for (const target of targets) {
+    const targetEdges = axisEdges(target, axis);
+    const gap = axis === 'x' ? gapY(moving, target) : gapX(moving, target);
+    for (const te of names) {
+      const line = targetEdges[te];
       if (box.moveHigh) {
-        const dist = Math.abs(box.high - target);
-        if (dist < best) {
-          best = dist;
+        consider(Math.abs(box.high - line), pairKind(highName, te), gap, () => {
           nextLow = box.low;
-          nextHigh = target;
-        }
+          nextHigh = line;
+        });
       }
       if (box.moveLow) {
-        const dist = Math.abs(box.low - target);
-        if (dist < best) {
-          best = dist;
-          nextLow = target;
+        consider(Math.abs(box.low - line), pairKind(lowName, te), gap, () => {
+          nextLow = line;
           nextHigh = box.high;
-        }
+        });
       }
-      const distCenter = Math.abs(center - target);
-      if (distCenter < best) {
-        best = distCenter;
+      consider(Math.abs(center - line), pairKind('center', te), gap, () => {
         if (box.moveHigh && !box.moveLow) {
           nextLow = box.low;
-          nextHigh = 2 * target - box.low;
+          nextHigh = 2 * line - box.low;
         } else if (box.moveLow && !box.moveHigh) {
           nextHigh = box.high;
-          nextLow = 2 * target - box.high;
+          nextLow = 2 * line - box.high;
         }
-      }
+      });
     }
   }
 
@@ -556,8 +664,9 @@ const CANDIDATE_SELECTOR = [
 ].join(',');
 
 /**
- * Visible, meaningful boxes to snap against: buttons and other page
- * furniture in the viewport, plus siblings of the moving element.
+ * Visible, meaningful boxes to snap against: the parent, siblings, and
+ * other page furniture in the viewport. Full-page wrappers stay out so
+ * a drag does not glue itself to the canvas midline.
  */
 export function collectSnapTargets(
   doc: Document,
@@ -567,11 +676,12 @@ export function collectSnapTargets(
   const seen = new Set<Element>([moving]);
   const out: AlignRect[] = [];
 
-  const add = (node: Element): void => {
+  const add = (node: Element, opts?: { allowLarge?: boolean }): void => {
     if (!(node instanceof HTMLElement)) return;
     if (seen.has(node)) return;
     if (node.hasAttribute('data-interface-kit')) return;
     if (moving.contains(node) || node.contains(moving)) return;
+    if (node === doc.body || node === doc.documentElement) return;
 
     const box = node.getBoundingClientRect();
     if (box.width < 8 || box.height < 8) return;
@@ -583,24 +693,33 @@ export function collectSnapTargets(
     ) {
       return;
     }
-    if (box.width > viewport.width * 0.9 && box.height > viewport.height * 0.45) {
+    if (
+      !opts?.allowLarge &&
+      box.width > viewport.width * 0.9 &&
+      box.height > viewport.height * 0.45
+    ) {
       return;
     }
 
     seen.add(node);
+    const left = Math.round(box.left);
+    const top = Math.round(box.top);
+    const right = Math.round(box.left + box.width);
+    const bottom = Math.round(box.top + box.height);
     out.push({
-      left: box.left,
-      top: box.top,
-      width: box.width,
-      height: box.height,
+      left,
+      top,
+      width: right - left,
+      height: bottom - top,
     });
   };
 
-  doc.querySelectorAll(CANDIDATE_SELECTOR).forEach(add);
+  doc.querySelectorAll(CANDIDATE_SELECTOR).forEach((node) => add(node));
 
   const parent = moving.parentElement;
   if (parent) {
-    for (const child of parent.children) add(child);
+    add(parent, { allowLarge: true });
+    for (const child of parent.children) add(child, { allowLarge: true });
   }
 
   return out;

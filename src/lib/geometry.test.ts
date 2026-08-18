@@ -39,6 +39,38 @@ describe('snapRect', () => {
   it('uses a 6px threshold', () => {
     assert.equal(SNAP_THRESHOLD_PX, 6);
   });
+
+  it('prefers an overlapping neighbor over a slightly closer distant box', () => {
+    const moving = box(105, 0, 100, 40);
+    const near = box(0, 0, 100, 40);
+    const far = box(0, 400, 102, 40);
+    const snap = snapRect(moving, [far, near]);
+    assert.equal(snap.dx, -5);
+    assert.ok(snap.vertical.includes('left'));
+  });
+
+  it('does not snap an edge onto a center', () => {
+    const moving = box(155, 0, 100, 40);
+    const target = box(0, 0, 300, 40);
+    assert.deepEqual(snapRect(moving, [target]), NO_SNAP);
+  });
+
+  it('still snaps center to center', () => {
+    const moving = box(55, 0, 100, 40);
+    const target = box(0, 0, 200, 80);
+    const snap = snapRect(moving, [target]);
+    assert.equal(snap.dx, -5);
+    assert.ok(snap.vertical.includes('center'));
+  });
+
+  it('prefers same-edge align over flush at equal distance', () => {
+    const moving = box(204, 0, 100, 40);
+    const aligned = box(200, 0, 80, 40);
+    const flush = box(0, 0, 208, 40);
+    const snap = snapRect(moving, [flush, aligned]);
+    assert.equal(snap.dx, -4);
+    assert.ok(snap.vertical.includes('left'));
+  });
 });
 
 describe('snapRectSticky', () => {
@@ -77,6 +109,19 @@ describe('snapRectSticky', () => {
     const next = snapRectSticky(box(216, 0, 200, 80), [target], stick);
     assert.equal(216 + next.dx, 202);
     assert.equal(stick.x.lock, null);
+  });
+
+  it('lets a center snap go with less travel than an edge', () => {
+    const mid = box(0, 0, 200, 80);
+    const stick = createSnapStick();
+    snapRectSticky(box(55, 0, 100, 40), [mid], stick);
+    assert.equal(stick.x.kind, 'center');
+    assert.equal(stick.x.lock, 50);
+    const held = snapRectSticky(box(58, 0, 100, 40), [mid], stick);
+    assert.equal(58 + held.dx, 50);
+    const released = snapRectSticky(box(60, 0, 100, 40), [mid], stick);
+    assert.equal(stick.x.lock, null);
+    assert.equal(60 + released.dx, 51);
   });
 });
 
