@@ -1,10 +1,22 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { InterfaceKitController, InterfaceKitOptions } from 'interface-kit';
+	import { enableAlignmentGuides } from './alignmentGuides.js';
+	import { enableCraftSelect } from './craftSelect.js';
+	import { enableMoveSelected } from './moveSelected.js';
 
 	// Set `enabled` explicitly: otherwise the package falls back to
 	// process.env.NODE_ENV, which is not reliably present in the browser.
-	let { enabled = import.meta.env.DEV, ...options }: InterfaceKitOptions = $props();
+	// `movable` and `guides` are our own additions, not part of
+	// InterfaceKitOptions, so they must be destructured out before
+	// `...options` is passed to the package.
+	// When `movable` is true it also draws resize handles on the selection rect.
+	let {
+		enabled = import.meta.env.DEV,
+		movable = true,
+		guides = true,
+		...options
+	}: InterfaceKitOptions & { movable?: boolean; guides?: boolean } = $props();
 
 	const PORTAL_STYLE_ID = 'interface-kit-portal-styles';
 	const RUNTIME_STYLE_ID = 'interface-kit-runtime-styles';
@@ -13,10 +25,13 @@
 	 * The kit renders its UI into a shadow root, but Radix portals its popovers
 	 * (color picker, shadow, border) into document.body, i.e. out of the shadow
 	 * root where the kit's stylesheet no longer applies. Without this fix they
-	 * show up as an unstyled fragment in the middle of the page.
+	 * show up as an unstyled fragment in the middle of the page — or, in a host
+	 * app that styles [data-slot=popover-content], as that app's popover look.
 	 *
 	 * So we mirror the stylesheet into the light DOM, scoped strictly to the
 	 * portal container so Tailwind's preflight never leaks into the host app.
+	 * Native <select> pickers (Typeface) are swapped for a Craft listbox in
+	 * enableCraftSelect: those never enter the DOM, so CSS cannot restyle them.
 	 */
 	function mirrorStylesForPortals(shadow: ShadowRoot) {
 		if (document.getElementById(PORTAL_STYLE_ID)) return true;
@@ -43,6 +58,10 @@
 		let controller: InterfaceKitController | null = null;
 		let disposed = false;
 		let observer: MutationObserver | null = null;
+		let disposeMoveSelected: (() => void) | null = null;
+		let disposeAlignmentGuides: (() => void) | null = null;
+		let disposeCraftSelect: (() => void) | null = null;
+		const doc = options.ownerDocument ?? document;
 
 		// Dynamic import: the package touches `document` on load, so it must
 		// never end up in the SSR bundle.
@@ -52,10 +71,20 @@
 			controller = createInterfaceKit({ ...options, enabled: true });
 			controller.mount();
 
+			if (movable) {
+				disposeMoveSelected = enableMoveSelected(controller, doc);
+			}
+			if (guides) {
+				disposeAlignmentGuides = enableAlignmentGuides(controller, doc);
+			}
+			disposeCraftSelect = enableCraftSelect(doc);
+
 			// The shadow root only exists once React has mounted.
 			observer = new MutationObserver(() => {
-				const shadow = document.querySelector('[data-interface-kit]')?.shadowRoot;
-				if (shadow && mirrorStylesForPortals(shadow)) {
+				const host = [...document.querySelectorAll('[data-interface-kit]')].find(
+					(el) => el.shadowRoot
+				);
+				if (host?.shadowRoot && mirrorStylesForPortals(host.shadowRoot)) {
 					observer?.disconnect();
 					observer = null;
 				}
@@ -66,6 +95,9 @@
 		return () => {
 			disposed = true;
 			observer?.disconnect();
+			disposeMoveSelected?.();
+			disposeAlignmentGuides?.();
+			disposeCraftSelect?.();
 			controller?.destroy();
 			controller = null;
 			document.getElementById(PORTAL_STYLE_ID)?.remove();

@@ -57,6 +57,39 @@ Without the flag the package calls its internal `resolveEnabled()`, which falls 
 createInterfaceKit({ enabled: true });
 ```
 
+## Moving elements
+
+InterfaceKit itself has no way to reposition or drag-resize an element: the Layout tab exposes width, height, padding, margin, flex direction, alignment and gap, and the tool never touches the DOM tree. This repo adds moving and resize handles on top of it.
+
+Select an element, then:
+
+- **Drag it.** The drag engages after 3px, so a short click still selects as usual. Edges and centers **snap** to nearby buttons and other page furniture within 6px (left/center/right, top/middle/bottom). Hold **Alt** to move freely.
+- **Drag a handle** on the selection rect to resize. Corner handles with **Shift** lock aspect ratio. West/north handles also write `translate` so the opposite edge stays put.
+- **Arrow keys** nudge by 1px, **Shift + arrow** by 10px.
+- **Escape** cancels a drag in progress and puts the element back.
+
+Moving is applied as the CSS [`translate`](https://developer.mozilla.org/en-US/docs/Web/CSS/translate) property; resize as `width` / `height`. All three go through `controller.applyStyleGroup` with a Tailwind class, so they show up in the pending changes and in the "Copy as prompt" export like any other edit.
+
+It uses `applyStyleGroup` with a single element on purpose. The `applyStyle` shortcut expands to `[element, ...getSimilarElements(element)]` internally, which is right for a color but wrong for a position: it would move every similar button at once.
+
+Pass `movable={false}` to turn it off:
+
+```svelte
+<InterfaceKit movable={false} />
+```
+
+## Alignment guides
+
+While the brush is active, hovering an element draws six viewport-spanning lines from its box: left, center and right (vertical), top, center and bottom (horizontal). Use them to check whether other elements share an edge or a midline.
+
+The same guides stay on the selected element, so they keep tracking while you drag or resize. Center lines are dashed; edges are solid. Both use the kit's hover blue.
+
+Pass `guides={false}` to turn them off:
+
+```svelte
+<InterfaceKit guides={false} />
+```
+
 ## The popover fix
 
 **Symptom:** the color picker (and the border and shadow popovers) open as a completely unstyled fragment in the middle of the page.
@@ -79,6 +112,16 @@ Two details carry this:
 - **`:root` has to become `:scope`**, because `html` sits outside the scope. Otherwise every custom property, and with it every color, goes missing.
 
 The package uses popper-based portals exclusively (no dialogs), so a single scope selector covers every popover it has.
+
+Color / shadow / border still inherit a second look if the host app styles `[data-slot=popover-content]` globally (shadcn, bits-ui). Color wins via `!important` utilities; the others do not. The binding forces those portaled surfaces onto the kit's `#2a2a2a` panel.
+
+## Native selects
+
+**Symptom:** Typeface (and any other kit `<select>`) opens the OS menu — a light system list on top of the dark inspector — instead of the Interface Craft popover used for color and shadow.
+
+**Cause:** The package uses a native `<select>`. The picker is painted by the browser, not by the kit, and is not in the DOM, so neither the shadow stylesheet nor the portal mirror can restyle it.
+
+**Fix:** intercept mousedown / keyboard on kit `<select>` elements and open a Craft listbox (`#2a2a2a`, 12px radius, same shadow as ShadeSelector). Choosing an option writes `select.value` and dispatches `change`, so the React handler still runs.
 
 ## Verified
 
