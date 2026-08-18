@@ -4,6 +4,7 @@
 	import { enableAlignmentGuides } from './alignmentGuides.js';
 	import { enableCraftSelect } from './craftSelect.js';
 	import { enableDistanceGuides } from './distanceGuides.js';
+	import { enableInspectorDrag } from './inspectorDrag.js';
 	import { enableMoveSelected } from './moveSelected.js';
 	import { enableSelectAncestry } from './selectAncestry.js';
 	import { enableStyleState } from './styleState.js';
@@ -62,6 +63,7 @@
 		let disposed = false;
 		let observer: MutationObserver | null = null;
 		let disposeMoveSelected: (() => void) | null = null;
+		let disposeInspectorDrag: (() => void) | null = null;
 		let disposeAlignmentGuides: (() => void) | null = null;
 		let disposeDistanceGuides: (() => void) | null = null;
 		let disposeSelectAncestry: (() => void) | null = null;
@@ -80,6 +82,9 @@
 			if (movable) {
 				disposeMoveSelected = enableMoveSelected(controller, doc);
 			}
+			// Before selectAncestry so Escape can cancel a panel drag without
+			// walking the selection up — both listen on window capture.
+			disposeInspectorDrag = enableInspectorDrag(controller, doc);
 			if (guides) {
 				disposeAlignmentGuides = enableAlignmentGuides(controller, doc);
 			}
@@ -105,6 +110,7 @@
 			disposed = true;
 			observer?.disconnect();
 			disposeMoveSelected?.();
+			disposeInspectorDrag?.();
 			disposeAlignmentGuides?.();
 			disposeDistanceGuides?.();
 			disposeSelectAncestry?.();

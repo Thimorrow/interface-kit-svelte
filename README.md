@@ -80,6 +80,10 @@ Pass `movable={false}` to turn it off:
 <InterfaceKit movable={false} />
 ```
 
+## Moving the inspector
+
+The package only lets you drag the collapsed paintbrush. With the kit open, grab the Copy Edits bar to move the inspector. The Style / Layout panel (and Settings) stay attached. A short click still hits Copy Edits, delete, settings and close; the drag engages after 5px. Escape cancels a drag in progress. Closing the kit puts the panel back in the corner.
+
 ## Alignment guides
 
 While the brush is active, hovering an element draws six viewport-spanning lines from its box: left, center and right (vertical), top, center and bottom (horizontal). Use them to check whether other elements share an edge or a midline.
