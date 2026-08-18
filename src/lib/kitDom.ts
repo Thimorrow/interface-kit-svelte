@@ -67,27 +67,6 @@ export function parentToward(selected: HTMLElement): HTMLElement | null {
   return isSelectableHost(parent) ? parent : null;
 }
 
-export function hostLabel(el: HTMLElement): string {
-  const tag = el.tagName.toLowerCase();
-  if (el.id) return `${tag}#${el.id}`;
-  const cls = [...el.classList].find((name) => name.length > 0);
-  if (cls) return `.${cls}`;
-  return tag;
-}
-
-/** Root-most selectable ancestor → selected. Caps at 5, with a hole in the middle. */
-export function ancestryChain(el: HTMLElement): HTMLElement[] {
-  const chain: HTMLElement[] = [];
-  let current: HTMLElement | null = el;
-  while (current && isSelectableHost(current)) {
-    chain.push(current);
-    current = current.parentElement;
-  }
-  chain.reverse();
-  if (chain.length <= 5) return chain;
-  return [...chain.slice(0, 1), ...chain.slice(-4)];
-}
-
 const LAYOUT_CLASS =
   /^(flex|grid|block|inline|relative|absolute|fixed|sticky|hidden|contents|static|w-|h-|p-|m-|gap-|items-|justify-|self-|col-|row-|min-|max-|overflow-|rounded|shadow|text-|bg-|border)/;
 

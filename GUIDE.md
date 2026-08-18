@@ -16,7 +16,7 @@ The engine, inspector and “Copy as prompt” export are [Josh Puckett’s](htt
 - [Parent and child](#parent-and-child)
 - [This / All](#this--all)
 - [Tokens](#tokens)
-- [Rest / Hover / Focus](#rest--hover--focus)
+- [Rest / Hover](#rest--hover)
 - [Move the inspector](#move-the-inspector)
 - [Keyboard](#keyboard)
 - [Svelte wiring](#svelte-wiring)
@@ -74,7 +74,7 @@ The component renders nothing itself. In production builds `enabled` defaults to
 <InterfaceKit movable={false} guides={false} />
 ```
 
-Distances, ancestry, This / All, tokens and Rest / Hover / Focus stay on whenever the kit is enabled. They have no extra props.
+Distances, ancestry, This / All, tokens and Rest / Hover stay on whenever the kit is enabled. They have no extra props.
 
 ## The loop
 
@@ -125,19 +125,16 @@ No modifier key. Alt is Option on Mac, so distances just appear.
 
 A click hits the innermost node: a tag, a heading, a quote — almost never the card wrapper that actually holds padding and radius.
 
-- The path on the selection rect (`article.card › .tags › span.tag`) is the ancestry. Click a segment to jump there.
 - **Escape** (no drag running) moves the selection one element up.
 - **Enter** or **double-click** moves one element in, toward the node under the cursor.
 
 The DOM does not change. Only `getSelectedElement()` does, so Move, Snap and the inspector all follow.
 
-A one-line hint under the path: `⌘ free · esc parent · ↵ child`. During a drag it becomes `⌘ free · esc cancel`. On Windows / Linux the free key is Ctrl.
-
 ## This / All
 
 Color and type writes in the package hit every similar button. Position already stays on the selected node.
 
-When similar nodes exist, **This / All N** sits next to Rest / Hover / Focus. **All** is the default (package behavior). **This** restores the others after an inspector write so only the selected element keeps the preview.
+When similar nodes exist, **This / All N** sits next to Rest / Hover. **All** is the default (package behavior). **This** restores the others after an inspector write so only the selected element keeps the preview.
 
 ## Tokens
 
@@ -145,11 +142,11 @@ When a color you apply matches a `:root` custom property (`--paper`, `--ink`, �
 
 There is no token editor. The binding only preserves what is already a custom property.
 
-## Rest / Hover / Focus
+## Rest / Hover
 
-The same chrome as the path. **Rest** is the default inspector target. Switch to **Hover** or **Focus**, then restyle: those writes export as `hover:…` / `focus:…` utilities next to the rest style.
+**Rest** is the default inspector target. Switch to **Hover**, then restyle: those writes export as `hover:…` utilities next to the rest style.
 
-There is no Active / Disabled set in this version.
+There is no Focus / Active / Disabled set in this version.
 
 ## Move the inspector
 
@@ -172,7 +169,6 @@ A short click still hits Copy Edits, delete, settings and close; the drag engage
 | Escape during drag | Cancel move, resize or inspector drag |
 | Escape (idle) | Select parent |
 | Enter / double-click | Select child toward the cursor |
-| Click path segment | Jump to that ancestor |
 | Click distance label | Write margin or padding |
 | Shift-click distance label | Write gap on the flex / grid parent |
 

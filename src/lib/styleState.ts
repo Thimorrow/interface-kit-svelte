@@ -32,10 +32,9 @@ export function subscribeStyleState(listener: () => void): () => void {
 }
 
 /**
- * Inspector edits in Hover/Focus land as hover: / focus: utilities so
- * Copy as prompt can write both states. Color values that match a :root
- * token become var(--…). The Rest/Hover/Focus buttons live on the
- * selection chrome.
+ * Inspector edits in Hover land as hover: utilities so Copy as prompt
+ * can write both states. Color values that match a :root token become
+ * var(--…). The Rest/Hover buttons live on the selection chrome.
  */
 export function enableStyleState(
   controller: InterfaceKitController,

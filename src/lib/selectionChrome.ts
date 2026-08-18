@@ -6,13 +6,7 @@ import {
   subscribeApplyScope,
   type ApplyScope,
 } from './applyScope.js';
-import {
-  ancestryChain,
-  hostLabel,
-  similarElements,
-} from './kitDom.js';
-import { chromeHint } from './kitModifiers.js';
-import { selectHostElement } from './kitSelect.js';
+import { similarElements } from './kitDom.js';
 import {
   getStyleState,
   setStyleState,
@@ -20,14 +14,14 @@ import {
   type KitStyleState,
 } from './styleState.js';
 
-const STATES: KitStyleState[] = ['rest', 'hover', 'focus'];
+const STATES: KitStyleState[] = ['rest', 'hover'];
 const STYLE_ID = 'interface-kit-chrome-styles';
 
 const CHROME_CSS = `[data-ik-chrome] {
   position: fixed;
   z-index: 100000;
   display: none;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
   pointer-events: auto;
@@ -52,31 +46,9 @@ const CHROME_CSS = `[data-ik-chrome] {
   font: inherit;
   cursor: pointer;
 }
-[data-ik-chrome] button[aria-pressed="true"],
-[data-ik-chrome] button[aria-current="true"] {
+[data-ik-chrome] button[aria-pressed="true"] {
   background: #363636;
   color: #fff;
-}
-[data-ik-chrome] [data-ik-path] button {
-  padding: 5px 7px;
-}
-[data-ik-chrome] [data-ik-sep] {
-  color: rgba(255, 255, 255, 0.28);
-  padding: 0 1px;
-  font-size: 10px;
-  pointer-events: none;
-}
-[data-ik-chrome] [data-ik-split] {
-  width: 1px;
-  align-self: stretch;
-  margin: 3px 4px;
-  background: rgba(255, 255, 255, 0.12);
-}
-[data-ik-chrome] [data-ik-hint] {
-  color: rgba(255, 255, 255, 0.45);
-  font: 500 10px/1.2 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0.01em;
-  pointer-events: none;
 }
 @media (hover: hover) and (pointer: fine) {
   [data-ik-chrome] button:hover {
@@ -89,8 +61,7 @@ const CHROME_CSS = `[data-ik-chrome] {
 `;
 
 /**
- * Path, Rest/Hover/Focus, This/All, and a one-line hint on the selection
- * rect. Parent/child is Escape/Enter; the path makes that visible.
+ * Rest/Hover and This/All on the selection. Parent/child is Escape/Enter.
  */
 export function enableSelectionChrome(
   controller: InterfaceKitController,
@@ -100,11 +71,10 @@ export function enableSelectionChrome(
   const chrome = createChrome(doc);
   const styleEl = ensureStyle(doc);
   doc.body.append(chrome.root);
-  const { path: pathBar, states: stateBar, scope: scopeBar, hint: hintEl } = chrome;
+  const { states: stateBar, scope: scopeBar } = chrome;
 
   let kitActive = false;
   let editingText = false;
-  let dragging = false;
   let overlayFrame = 0;
 
   const unsubscribe = controller.subscribe(onSnapshot);
@@ -116,7 +86,6 @@ export function enableSelectionChrome(
   function onSnapshot(snapshot: InterfaceKitSnapshot): void {
     kitActive = snapshot.isActive;
     editingText = snapshot.isEditingText;
-    dragging = snapshot.isDraggingStyle;
     syncOverlay();
   }
 
@@ -140,14 +109,12 @@ export function enableSelectionChrome(
       return;
     }
 
-    renderPath(pathBar, el);
     renderScope(scopeBar, el);
-    hintEl.textContent = chromeHint(dragging);
     syncButtons(stateBar, scopeBar);
 
     const rect = el.getBoundingClientRect();
-    const width = chrome.root.offsetWidth || 220;
-    const height = chrome.root.offsetHeight || 64;
+    const width = chrome.root.offsetWidth || 180;
+    const height = chrome.root.offsetHeight || 32;
     const left = Math.min(
       win.innerWidth - width - 8,
       Math.max(8, rect.left + rect.width / 2 - width / 2),
@@ -179,15 +146,7 @@ export function enableSelectionChrome(
     }
     if (btn.dataset.scope) {
       setApplyScope(btn.dataset.scope as ApplyScope);
-      return;
     }
-    const index = btn.dataset.pathIndex;
-    if (index == null) return;
-    const selected = controller.getSelectedElement();
-    if (!selected) return;
-    const chain = ancestryChain(selected);
-    const target = chain[Number(index)];
-    if (target) selectHostElement(controller, target);
   }
 
   chrome.root.addEventListener('click', onClick, true);
@@ -202,25 +161,6 @@ export function enableSelectionChrome(
     chrome.root.remove();
     styleEl.remove();
   };
-}
-
-function renderPath(bar: HTMLElement, el: HTMLElement): void {
-  const chain = ancestryChain(el);
-  bar.replaceChildren();
-  chain.forEach((node, index) => {
-    if (index > 0) {
-      const sep = bar.ownerDocument.createElement('span');
-      sep.setAttribute('data-ik-sep', '');
-      sep.textContent = '›';
-      bar.append(sep);
-    }
-    const btn = bar.ownerDocument.createElement('button');
-    btn.type = 'button';
-    btn.dataset.pathIndex = String(index);
-    btn.textContent = hostLabel(node);
-    btn.setAttribute('aria-current', String(node === el));
-    bar.append(btn);
-  });
 }
 
 function renderScope(bar: HTMLElement, el: HTMLElement): void {
@@ -243,24 +183,12 @@ function syncButtons(stateBar: HTMLElement, scopeBar: HTMLElement): void {
 
 function createChrome(doc: Document): {
   root: HTMLDivElement;
-  path: HTMLDivElement;
   states: HTMLDivElement;
   scope: HTMLDivElement;
-  hint: HTMLDivElement;
 } {
   const root = doc.createElement('div');
   root.setAttribute('data-interface-kit', '');
   root.setAttribute('data-ik-chrome', '');
-
-  const path = doc.createElement('div');
-  path.setAttribute('data-ik-bar', '');
-  path.setAttribute('data-ik-path', '');
-  path.setAttribute('aria-label', 'Selection path');
-  root.append(path);
-
-  const row = doc.createElement('div');
-  row.style.display = 'flex';
-  row.style.gap = '6px';
 
   const states = doc.createElement('div');
   states.setAttribute('data-ik-bar', '');
@@ -272,10 +200,10 @@ function createChrome(doc: Document): {
     btn.type = 'button';
     btn.dataset.state = state;
     btn.setAttribute('aria-pressed', String(state === 'rest'));
-    btn.textContent = state === 'rest' ? 'Rest' : state === 'hover' ? 'Hover' : 'Focus';
+    btn.textContent = state === 'rest' ? 'Rest' : 'Hover';
     states.append(btn);
   }
-  row.append(states);
+  root.append(states);
 
   const scope = doc.createElement('div');
   scope.setAttribute('data-ik-bar', '');
@@ -290,15 +218,9 @@ function createChrome(doc: Document): {
     btn.textContent = value === 'this' ? 'This' : 'All';
     scope.append(btn);
   }
-  row.append(scope);
-  root.append(row);
+  root.append(scope);
 
-  const hint = doc.createElement('div');
-  hint.setAttribute('data-ik-hint', '');
-  hint.textContent = chromeHint(false);
-  root.append(hint);
-
-  return { root, path, states, scope, hint };
+  return { root, states, scope };
 }
 
 function ensureStyle(doc: Document): HTMLStyleElement {

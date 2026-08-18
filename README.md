@@ -51,8 +51,8 @@ On top of Style / Type / Layout and Copy as prompt:
 
 - **Move and resize** the selection (`translate`, `width`, `height`), with 6px edge/center snap
 - **Alignment guides** and **distance labels** you can click to write margin, padding or gap
-- **Parent / child** via the path on the selection, Escape, Enter and double-click
-- **This / All**, **Rest / Hover / Focus**, and **token preservation** (`var(--paper)` instead of a hex)
+- **Parent / child** via Escape, Enter and double-click
+- **This / All**, **Rest / Hover**, and **token preservation** (`var(--paper)` instead of a hex)
 - **Draggable inspector** (grab the Copy Edits bar)
 - **Popover and native-select fixes** so the kit’s UI matches Craft inside a shadow root
 

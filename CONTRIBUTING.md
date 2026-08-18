@@ -30,6 +30,6 @@ npm run check
 | --- | --- |
 | Style / Type / Layout, Copy as prompt, the paintbrush | Upstream `interface-kit` |
 | SvelteKit mount, SSR, shadow-root popovers, native selects | This repo |
-| Move, snap, distances, ancestry, tokens, hover/focus chrome | This repo |
+| Move, snap, distances, ancestry, tokens, hover chrome | This repo |
 
 Copy `src/lib/InterfaceKit.svelte` and every module it imports. The demo page under `src/routes` is not part of the binding.
