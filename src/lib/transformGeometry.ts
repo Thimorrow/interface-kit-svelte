@@ -25,6 +25,20 @@ const EAST = new Set<ResizeHandle>(['e', 'ne', 'se']);
 const WEST = new Set<ResizeHandle>(['w', 'nw', 'sw']);
 const CORNER = new Set<ResizeHandle>(['ne', 'nw', 'se', 'sw']);
 
+export function handleMoves(handle: ResizeHandle): {
+  left: boolean;
+  right: boolean;
+  top: boolean;
+  bottom: boolean;
+} {
+  return {
+    left: WEST.has(handle),
+    right: EAST.has(handle),
+    top: NORTH.has(handle),
+    bottom: SOUTH.has(handle),
+  };
+}
+
 export function parseTranslate(raw: string | null | undefined): Translate {
   if (!raw || raw === 'none') return { x: 0, y: 0 };
   const parts = raw.trim().split(/\s+/).map(parseFloat);

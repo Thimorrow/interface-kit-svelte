@@ -63,10 +63,12 @@ InterfaceKit itself has no way to reposition or drag-resize an element: the Layo
 
 Select an element, then:
 
-- **Drag it.** The drag engages after 3px, so a short click still selects as usual. Edges and centers **snap** to nearby buttons and other page furniture within 6px (left/center/right, top/middle/bottom). Hold **Alt** to move freely.
-- **Drag a handle** on the selection rect to resize. Corner handles with **Shift** lock aspect ratio. West/north handles also write `translate` so the opposite edge stays put.
+- **Drag it.** The drag engages after 3px, so a short click still selects as usual. Edges and centers **snap** to nearby elements within 6px (left/center/right, top/middle/bottom). Hold **Alt** to move freely.
+- **Drag a handle** on the selection rect to resize. The dragged edges snap the same way. Corner handles with **Shift** lock aspect ratio; **Alt** still releases the magnet. West/north handles also write `translate` so the opposite edge stays put.
 - **Arrow keys** nudge by 1px, **Shift + arrow** by 10px.
-- **Escape** cancels a drag in progress and puts the element back.
+- **Escape** cancels a drag in progress and puts the element back. After that, Escape walks the selection up one parent.
+
+There is no 8px grid and no snap to a parent's padding edges. Snap is alignment against other boxes, the same six lines the guides already draw.
 
 Moving is applied as the CSS [`translate`](https://developer.mozilla.org/en-US/docs/Web/CSS/translate) property; resize as `width` / `height`. All three go through `controller.applyStyleGroup` with a Tailwind class, so they show up in the pending changes and in the "Copy as prompt" export like any other edit.
 
@@ -89,6 +91,27 @@ Pass `guides={false}` to turn them off:
 ```svelte
 <InterfaceKit guides={false} />
 ```
+
+## Distances
+
+With an element selected, hold **Alt** and hover another one. A line and a `12px` label show the gap between the same edges the guides use. Nested boxes show inset distances (padding-like). This is a readout, not a style write — apply `gap` or `margin` in the Layout tab if it should land in the prompt.
+
+## Parent / Child
+
+A click hits the innermost node: a tag, a heading, a quote — almost never the card wrapper that actually holds padding and radius.
+
+- **Escape** (no drag running) moves the selection one element up.
+- **Enter** or **double-click** moves one element in, toward the node under the cursor.
+
+The DOM does not change. Only `getSelectedElement()` does, so Move, Snap and the inspector all follow.
+
+## Tokens
+
+When a color you apply matches a `:root` custom property (`--paper`, `--ink`, …), the pending change stores `var(--paper)` and the Tailwind class `bg-[var(--paper)]` instead of the computed hex. Copy as prompt then keeps the design token. No token editor — it only preserves what is already a custom property.
+
+## Rest / Hover / Focus
+
+A small switcher sits on the selection rect. Rest is the default inspector target. Switch to Hover or Focus, then restyle: those writes export as `hover:…` / `focus:…` utilities next to the rest style. There is no Active/Disabled set in this version.
 
 ## The popover fix
 

@@ -8,6 +8,7 @@ import {
   NO_SNAP,
   setActiveSnap,
   snapRect,
+  snapResize,
   type AlignRect,
 } from './snapGeometry.js';
 import {
@@ -268,6 +269,8 @@ export function enableMoveSelected(
         startX: number;
         startY: number;
         base: TransformBox;
+        startRect: AlignRect;
+        targets: AlignRect[];
         widthWasSet: boolean;
         heightWasSet: boolean;
         translateWasSet: boolean;
@@ -275,6 +278,7 @@ export function enableMoveSelected(
       };
 
   let gesture: Gesture | null = null;
+  let lastPointer = { x: 0, y: 0 };
   let prevCursor = '';
   let prevUserSelect = '';
   let bodyStyled = false;
@@ -329,9 +333,11 @@ export function enableMoveSelected(
 
     event.preventDefault();
     event.stopPropagation();
+    lastPointer = { x: event.clientX, y: event.clientY };
 
     const translate = offsetOf(el);
     const size = sizeOf(el);
+    const box = el.getBoundingClientRect();
     const axes = {
       translate: handle.includes('n') || handle.includes('w'),
       width: handle.includes('e') || handle.includes('w'),
@@ -351,6 +357,16 @@ export function enableMoveSelected(
         width: size.width,
         height: size.height,
       },
+      startRect: {
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+      },
+      targets: collectSnapTargets(doc, el, {
+        width: win.innerWidth,
+        height: win.innerHeight,
+      }),
       widthWasSet: size.widthWasSet,
       heightWasSet: size.heightWasSet,
       translateWasSet: translate.wasSet,
@@ -372,6 +388,7 @@ export function enableMoveSelected(
     if (!el) return;
     if (!event.composedPath().includes(el)) return;
 
+    lastPointer = { x: event.clientX, y: event.clientY };
     const current = offsetOf(el);
     const box = el.getBoundingClientRect();
     gesture = {
@@ -398,6 +415,7 @@ export function enableMoveSelected(
 
   function onPointerMove(event: PointerEvent): void {
     if (!gesture) return;
+    lastPointer = { x: event.clientX, y: event.clientY };
 
     const dx = event.clientX - gesture.startX;
     const dy = event.clientY - gesture.startY;
@@ -415,11 +433,7 @@ export function enableMoveSelected(
     }
 
     event.preventDefault();
-    const next = resizeFrom(gesture.handle, gesture.base, dx, dy, {
-      minSize: MIN_SIZE_PX,
-      lockAspect: event.shiftKey,
-    });
-    applyBox(gesture.el, next, gesture.axes);
+    applyResize(gesture, dx, dy, event.altKey, event.shiftKey);
   }
 
   function applyMove(
@@ -437,6 +451,51 @@ export function enableMoveSelected(
     const snap = skipSnap ? NO_SNAP : snapRect(proposed, current.targets);
     setActiveSnap(snap);
     moveTo(current.el, current.base.x + dx + snap.dx, current.base.y + dy + snap.dy);
+  }
+
+  function applyResize(
+    current: Extract<Gesture, { kind: 'resize' }>,
+    dx: number,
+    dy: number,
+    skipSnap: boolean,
+    lockAspect: boolean,
+  ): void {
+    const next = resizeFrom(current.handle, current.base, dx, dy, {
+      minSize: MIN_SIZE_PX,
+      lockAspect,
+    });
+    const proposed: AlignRect = {
+      left: current.startRect.left + (next.x - current.base.x),
+      top: current.startRect.top + (next.y - current.base.y),
+      width: next.width,
+      height: next.height,
+    };
+    const snap = skipSnap
+      ? NO_SNAP
+      : snapResize(proposed, current.handle, current.targets);
+    setActiveSnap(snap);
+    applyBox(
+      current.el,
+      {
+        x: next.x + snap.dx,
+        y: next.y + snap.dy,
+        width: next.width + snap.dWidth,
+        height: next.height + snap.dHeight,
+      },
+      current.axes,
+    );
+  }
+
+  function replayGesture(altKey: boolean, shiftKey: boolean): void {
+    if (!gesture) return;
+    const dx = lastPointer.x - gesture.startX;
+    const dy = lastPointer.y - gesture.startY;
+    if (gesture.kind === 'move') {
+      if (!gesture.started) return;
+      applyMove(gesture, dx, dy, altKey);
+      return;
+    }
+    applyResize(gesture, dx, dy, altKey, shiftKey);
   }
 
   function endMoveSnap(): void {
@@ -540,8 +599,14 @@ export function enableMoveSelected(
     if (event.key === 'Escape') {
       if (gesture) {
         event.preventDefault();
+        event.stopPropagation();
         cancelGesture();
       }
+      return;
+    }
+
+    if (event.key === 'Alt' && gesture) {
+      replayGesture(true, event.shiftKey);
       return;
     }
 
@@ -574,7 +639,14 @@ export function enableMoveSelected(
     moveTo(el, x, y);
   }
 
+  function onKeyUp(event: KeyboardEvent): void {
+    if (event.key === 'Alt' && gesture) {
+      replayGesture(false, event.shiftKey);
+    }
+  }
+
   win.addEventListener('keydown', onKeyDown, true);
+  win.addEventListener('keyup', onKeyUp, true);
 
   return () => {
     unsubscribe();
@@ -585,6 +657,7 @@ export function enableMoveSelected(
     overlay.removeEventListener('pointerdown', onHandlePointerDown, true);
     doc.removeEventListener('pointerdown', onPointerDown, true);
     win.removeEventListener('keydown', onKeyDown, true);
+    win.removeEventListener('keyup', onKeyUp, true);
     overlay.remove();
     styleEl.remove();
   };

@@ -3,7 +3,10 @@
 	import type { InterfaceKitController, InterfaceKitOptions } from 'interface-kit';
 	import { enableAlignmentGuides } from './alignmentGuides.js';
 	import { enableCraftSelect } from './craftSelect.js';
+	import { enableDistanceGuides } from './distanceGuides.js';
 	import { enableMoveSelected } from './moveSelected.js';
+	import { enableSelectAncestry } from './selectAncestry.js';
+	import { enableStyleState } from './styleState.js';
 
 	// Set `enabled` explicitly: otherwise the package falls back to
 	// process.env.NODE_ENV, which is not reliably present in the browser.
@@ -60,6 +63,9 @@
 		let observer: MutationObserver | null = null;
 		let disposeMoveSelected: (() => void) | null = null;
 		let disposeAlignmentGuides: (() => void) | null = null;
+		let disposeDistanceGuides: (() => void) | null = null;
+		let disposeSelectAncestry: (() => void) | null = null;
+		let disposeStyleState: (() => void) | null = null;
 		let disposeCraftSelect: (() => void) | null = null;
 		const doc = options.ownerDocument ?? document;
 
@@ -77,6 +83,9 @@
 			if (guides) {
 				disposeAlignmentGuides = enableAlignmentGuides(controller, doc);
 			}
+			disposeDistanceGuides = enableDistanceGuides(controller, doc);
+			disposeSelectAncestry = enableSelectAncestry(controller, doc);
+			disposeStyleState = enableStyleState(controller, doc);
 			disposeCraftSelect = enableCraftSelect(doc);
 
 			// The shadow root only exists once React has mounted.
@@ -97,6 +106,9 @@
 			observer?.disconnect();
 			disposeMoveSelected?.();
 			disposeAlignmentGuides?.();
+			disposeDistanceGuides?.();
+			disposeSelectAncestry?.();
+			disposeStyleState?.();
 			disposeCraftSelect?.();
 			controller?.destroy();
 			controller = null;

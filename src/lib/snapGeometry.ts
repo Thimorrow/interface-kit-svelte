@@ -1,7 +1,10 @@
 /**
- * Light alignment snap for InterfaceKit drag. Pure so the threshold math
- * can be pinned without mounting the overlay. Values are CSS pixels.
+ * Light alignment snap for InterfaceKit drag and resize. Pure so the
+ * threshold math can be pinned without mounting the overlay. Values are
+ * CSS pixels.
  */
+
+import { handleMoves, MIN_SIZE_PX, type ResizeHandle } from './transformGeometry.js';
 
 export interface AlignRect {
   left: number;
@@ -16,6 +19,8 @@ export type SnapEdgeY = 'top' | 'center' | 'bottom';
 export interface SnapResult {
   dx: number;
   dy: number;
+  dWidth: number;
+  dHeight: number;
   vertical: SnapEdgeX[];
   horizontal: SnapEdgeY[];
 }
@@ -26,6 +31,8 @@ export const SNAP_THRESHOLD_PX = 6;
 export const NO_SNAP: SnapResult = {
   dx: 0,
   dy: 0,
+  dWidth: 0,
+  dHeight: 0,
   vertical: [],
   horizontal: [],
 };
@@ -119,9 +126,127 @@ export function snapRect(
   return {
     dx,
     dy,
+    dWidth: 0,
+    dHeight: 0,
     vertical: matchingX(snapped, targets),
     horizontal: matchingY(snapped, targets),
   };
+}
+
+/**
+ * Snap the edges a resize handle is dragging. The opposite edge stays put
+ * (no 8px grid, no parent padding). Centers of the moving box can catch too.
+ */
+export function snapResize(
+  moving: AlignRect,
+  handle: ResizeHandle,
+  targets: AlignRect[],
+  threshold: number = SNAP_THRESHOLD_PX,
+  minSize: number = MIN_SIZE_PX,
+): SnapResult {
+  if (targets.length === 0) return NO_SNAP;
+
+  const moves = handleMoves(handle);
+  let left = moving.left;
+  let top = moving.top;
+  let right = moving.left + moving.width;
+  let bottom = moving.top + moving.height;
+
+  if (moves.left || moves.right) {
+    const x = snapAxis(
+      { low: left, high: right, moveLow: moves.left, moveHigh: moves.right },
+      targets.map((target) => xEdges(target)),
+      threshold,
+    );
+    left = x.low;
+    right = x.high;
+  }
+
+  if (moves.top || moves.bottom) {
+    const y = snapAxis(
+      { low: top, high: bottom, moveLow: moves.top, moveHigh: moves.bottom },
+      targets.map((target) => yEdges(target)),
+      threshold,
+    );
+    top = y.low;
+    bottom = y.high;
+  }
+
+  if (right - left < minSize) {
+    if (moves.right && !moves.left) right = left + minSize;
+    else if (moves.left && !moves.right) left = right - minSize;
+  }
+  if (bottom - top < minSize) {
+    if (moves.bottom && !moves.top) bottom = top + minSize;
+    else if (moves.top && !moves.bottom) top = bottom - minSize;
+  }
+
+  const dx = left - moving.left;
+  const dy = top - moving.top;
+  const dWidth = right - left - moving.width;
+  const dHeight = bottom - top - moving.height;
+  if (dx === 0 && dy === 0 && dWidth === 0 && dHeight === 0) return NO_SNAP;
+
+  const snapped: AlignRect = {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  };
+
+  return {
+    dx,
+    dy,
+    dWidth,
+    dHeight,
+    vertical: matchingX(snapped, targets),
+    horizontal: matchingY(snapped, targets),
+  };
+}
+
+function snapAxis(
+  box: { low: number; high: number; moveLow: boolean; moveHigh: boolean },
+  targets: Record<string, number>[],
+  threshold: number,
+): { low: number; high: number } {
+  let best = threshold;
+  let nextLow = box.low;
+  let nextHigh = box.high;
+  const center = (box.low + box.high) / 2;
+
+  for (const edges of targets) {
+    for (const target of Object.values(edges)) {
+      if (box.moveHigh) {
+        const dist = Math.abs(box.high - target);
+        if (dist < best) {
+          best = dist;
+          nextLow = box.low;
+          nextHigh = target;
+        }
+      }
+      if (box.moveLow) {
+        const dist = Math.abs(box.low - target);
+        if (dist < best) {
+          best = dist;
+          nextLow = target;
+          nextHigh = box.high;
+        }
+      }
+      const distCenter = Math.abs(center - target);
+      if (distCenter < best) {
+        best = distCenter;
+        if (box.moveHigh && !box.moveLow) {
+          nextLow = box.low;
+          nextHigh = 2 * target - box.low;
+        } else if (box.moveLow && !box.moveHigh) {
+          nextHigh = box.high;
+          nextLow = 2 * target - box.high;
+        }
+      }
+    }
+  }
+
+  return { low: nextLow, high: nextHigh };
 }
 
 function matchingX(moving: AlignRect, targets: AlignRect[]): SnapEdgeX[] {
