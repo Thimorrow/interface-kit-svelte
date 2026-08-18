@@ -1,7 +1,8 @@
 import type { InterfaceKitController, InterfaceKitSnapshot } from 'interface-kit';
 
+import { styleFromDistance, spaceClass } from './distanceApply.js';
 import { measureDistances, type DistanceMark } from './distanceGeometry.js';
-import { hitTest, isInsideKitUi } from './kitDom.js';
+import { hitTest, isFlexOrGrid, isInsideKitUi, parentToward } from './kitDom.js';
 import type { AlignRect } from './snapGeometry.js';
 
 const STYLE_ID = 'interface-kit-distance-styles';
@@ -35,12 +36,31 @@ const DISTANCE_CSS = `[data-ik-distance] {
   font: 500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  [data-ik-distance] [data-ik-label]:hover {
+    background: #1d4ed8;
+  }
+}
+[data-ik-distance] [data-ik-label]:active {
+  transform: translate(-50%, -50%) scale(0.97);
 }
 `;
 
+type Measure = {
+  selected: HTMLElement;
+  hovered: HTMLElement;
+  selectedRect: AlignRect;
+  hoveredRect: AlignRect;
+  marks: DistanceMark[];
+};
+
 /**
- * Selection held, Alt + hover another element: distance lines and a px label.
- * Overlay only — writing gap/margin is a later, explicit apply.
+ * Selection held, hover another element: distance lines and a px label.
+ * Click the label to write margin or padding. Shift-click writes gap on a
+ * flex/grid parent. No modifier — Alt is Option on Mac and nobody holds it.
  */
 export function enableDistanceGuides(
   controller: InterfaceKitController,
@@ -54,9 +74,9 @@ export function enableDistanceGuides(
   let kitActive = false;
   let editingText = false;
   let dragging = false;
-  let altDown = false;
   let pointer = { x: 0, y: 0 };
   let frame = 0;
+  let measure: Measure | null = null;
 
   const unsubscribe = controller.subscribe(onSnapshot);
   onSnapshot(controller.getState());
@@ -69,7 +89,7 @@ export function enableDistanceGuides(
   }
 
   function canMeasure(): boolean {
-    return kitActive && !editingText && !dragging && altDown;
+    return kitActive && !editingText && !dragging;
   }
 
   function sync(): void {
@@ -95,11 +115,11 @@ export function enableDistanceGuides(
       return;
     }
 
-    place(
-      overlay,
-      toRect(hovered.getBoundingClientRect()),
-      measureDistances(toRect(selected.getBoundingClientRect()), toRect(hovered.getBoundingClientRect())),
-    );
+    const selectedRect = toRect(selected.getBoundingClientRect());
+    const hoveredRect = toRect(hovered.getBoundingClientRect());
+    const marks = measureDistances(selectedRect, hoveredRect);
+    measure = { selected, hovered, selectedRect, hoveredRect, marks };
+    place(overlay, hoveredRect, marks);
     frame = win.requestAnimationFrame(tick);
   }
 
@@ -113,46 +133,87 @@ export function enableDistanceGuides(
 
   function hide(): void {
     overlay.style.display = 'none';
-  }
-
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Alt') return;
-    altDown = true;
-    sync();
-  }
-
-  function onKeyUp(event: KeyboardEvent): void {
-    if (event.key !== 'Alt') return;
-    altDown = false;
-    sync();
+    measure = null;
   }
 
   function onPointerMove(event: PointerEvent): void {
+    if (isLabel(event)) return;
     pointer = { x: event.clientX, y: event.clientY };
-    if (!altDown || isInsideKitUi(event)) return;
+    if (isInsideKitUi(event) && !isLabel(event)) return;
     sync();
   }
 
-  function onBlur(): void {
-    altDown = false;
-    sync();
+  function onClick(event: MouseEvent): void {
+    const label = event
+      .composedPath()
+      .find(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement && node.hasAttribute('data-ik-label'),
+      );
+    if (!label || !measure) return;
+    const index = Number(label.dataset.mark);
+    const mark = measure.marks[index];
+    if (!mark) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    applyMark(controller, measure, mark, event.shiftKey);
   }
 
-  win.addEventListener('keydown', onKeyDown, true);
-  win.addEventListener('keyup', onKeyUp, true);
-  win.addEventListener('blur', onBlur);
+  overlay.addEventListener('click', onClick, true);
+  overlay.addEventListener('pointerdown', (event) => {
+    if (isLabel(event)) event.stopPropagation();
+  }, true);
   doc.addEventListener('pointermove', onPointerMove, POINTER_MOVE);
 
   return () => {
     unsubscribe();
     stop();
-    win.removeEventListener('keydown', onKeyDown, true);
-    win.removeEventListener('keyup', onKeyUp, true);
-    win.removeEventListener('blur', onBlur);
+    overlay.removeEventListener('click', onClick, true);
     doc.removeEventListener('pointermove', onPointerMove, POINTER_MOVE);
     overlay.remove();
     styleEl.remove();
   };
+}
+
+function applyMark(
+  controller: InterfaceKitController,
+  current: Measure,
+  mark: DistanceMark,
+  gapOnParent: boolean,
+): void {
+  const info = controller.getState().selectedElement;
+  if (gapOnParent && !mark.nested) {
+    const parent = parentToward(current.selected);
+    if (parent && isFlexOrGrid(parent)) {
+      const property = mark.axis === 'x' ? 'column-gap' : 'row-gap';
+      controller.applyStyleGroup(
+        [parent],
+        property,
+        `${mark.px}px`,
+        spaceClass(property, mark.px),
+        info ?? undefined,
+      );
+      return;
+    }
+  }
+
+  const write = styleFromDistance(current.selectedRect, current.hoveredRect, mark);
+  controller.applyStyleGroup(
+    [current.selected],
+    write.property,
+    write.value,
+    write.tailwindClass,
+    info ?? undefined,
+  );
+}
+
+function isLabel(event: Event): boolean {
+  return event
+    .composedPath()
+    .some(
+      (node) => node instanceof Element && node.hasAttribute('data-ik-label'),
+    );
 }
 
 function toRect(box: DOMRect): AlignRect {
@@ -163,7 +224,6 @@ function createOverlay(doc: Document): HTMLDivElement {
   const root = doc.createElement('div');
   root.setAttribute('data-interface-kit', '');
   root.setAttribute('data-ik-distance', '');
-  root.setAttribute('aria-hidden', 'true');
 
   const hoverBox = doc.createElement('div');
   hoverBox.setAttribute('data-ik-hover-box', '');
@@ -207,7 +267,7 @@ function place(overlay: HTMLDivElement, hover: AlignRect, marks: DistanceMark[])
   svg.replaceChildren();
   labels.replaceChildren();
 
-  for (const mark of marks) {
+  marks.forEach((mark, index) => {
     const line = overlay.ownerDocument.createElementNS(SVG_NS, 'line');
     line.setAttribute('x1', String(mark.x1));
     line.setAttribute('y1', String(mark.y1));
@@ -215,15 +275,18 @@ function place(overlay: HTMLDivElement, hover: AlignRect, marks: DistanceMark[])
     line.setAttribute('y2', String(mark.y2));
     svg.append(line);
 
-    const label = overlay.ownerDocument.createElement('div');
+    const label = overlay.ownerDocument.createElement('button');
+    label.type = 'button';
     label.setAttribute('data-ik-label', '');
+    label.dataset.mark = String(index);
     label.textContent = `${mark.px}px`;
+    label.title = 'Click to apply. Shift-click writes gap on a flex parent.';
     const cx = (mark.x1 + mark.x2) / 2;
     const cy = (mark.y1 + mark.y2) / 2;
     label.style.left = `${cx + (mark.axis === 'x' ? 0 : 12)}px`;
     label.style.top = `${cy + (mark.axis === 'x' ? -10 : 0)}px`;
     labels.append(label);
-  }
+  });
 
   overlay.style.display = 'block';
 }

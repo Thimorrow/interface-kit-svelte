@@ -21,6 +21,7 @@ import {
   type TransformBox,
   type Translate,
 } from './transformGeometry.js';
+import { isSkipSnapKey, skipSnapFrom } from './kitModifiers.js';
 
 const OVERLAY_PAD = 8;
 const HANDLE_IDS: ResizeHandle[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
@@ -428,12 +429,12 @@ export function enableMoveSelected(
         beginBodyStyle('move');
       }
       event.preventDefault();
-      applyMove(gesture, dx, dy, event.altKey);
+      applyMove(gesture, dx, dy, skipSnapFrom(event));
       return;
     }
 
     event.preventDefault();
-    applyResize(gesture, dx, dy, event.altKey, event.shiftKey);
+    applyResize(gesture, dx, dy, skipSnapFrom(event), event.shiftKey);
   }
 
   function applyMove(
@@ -486,16 +487,16 @@ export function enableMoveSelected(
     );
   }
 
-  function replayGesture(altKey: boolean, shiftKey: boolean): void {
+  function replayGesture(skipSnap: boolean, shiftKey: boolean): void {
     if (!gesture) return;
     const dx = lastPointer.x - gesture.startX;
     const dy = lastPointer.y - gesture.startY;
     if (gesture.kind === 'move') {
       if (!gesture.started) return;
-      applyMove(gesture, dx, dy, altKey);
+      applyMove(gesture, dx, dy, skipSnap);
       return;
     }
-    applyResize(gesture, dx, dy, altKey, shiftKey);
+    applyResize(gesture, dx, dy, skipSnap, shiftKey);
   }
 
   function endMoveSnap(): void {
@@ -605,7 +606,7 @@ export function enableMoveSelected(
       return;
     }
 
-    if (event.key === 'Alt' && gesture) {
+    if (isSkipSnapKey(event) && gesture) {
       replayGesture(true, event.shiftKey);
       return;
     }
@@ -640,7 +641,7 @@ export function enableMoveSelected(
   }
 
   function onKeyUp(event: KeyboardEvent): void {
-    if (event.key === 'Alt' && gesture) {
+    if (isSkipSnapKey(event) && gesture) {
       replayGesture(false, event.shiftKey);
     }
   }

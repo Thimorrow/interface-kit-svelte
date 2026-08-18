@@ -66,3 +66,60 @@ export function parentToward(selected: HTMLElement): HTMLElement | null {
   const parent = selected.parentElement;
   return isSelectableHost(parent) ? parent : null;
 }
+
+export function hostLabel(el: HTMLElement): string {
+  const tag = el.tagName.toLowerCase();
+  if (el.id) return `${tag}#${el.id}`;
+  const cls = [...el.classList].find((name) => name.length > 0);
+  if (cls) return `.${cls}`;
+  return tag;
+}
+
+/** Root-most selectable ancestor → selected. Caps at 5, with a hole in the middle. */
+export function ancestryChain(el: HTMLElement): HTMLElement[] {
+  const chain: HTMLElement[] = [];
+  let current: HTMLElement | null = el;
+  while (current && isSelectableHost(current)) {
+    chain.push(current);
+    current = current.parentElement;
+  }
+  chain.reverse();
+  if (chain.length <= 5) return chain;
+  return [...chain.slice(0, 1), ...chain.slice(-4)];
+}
+
+const LAYOUT_CLASS =
+  /^(flex|grid|block|inline|relative|absolute|fixed|sticky|hidden|contents|static|w-|h-|p-|m-|gap-|items-|justify-|self-|col-|row-|min-|max-|overflow-|rounded|shadow|text-|bg-|border)/;
+
+/**
+ * Same tag + overlapping class names, the same idea as the package's
+ * getSimilarElements. Used to pin All vs This without a public API.
+ */
+export function similarElements(el: HTMLElement): HTMLElement[] {
+  const tag = el.tagName.toLowerCase();
+  const meaningful = [...el.classList].filter(
+    (name) =>
+      name.length > 2 &&
+      !LAYOUT_CLASS.test(name) &&
+      !name.includes(':') &&
+      !name.includes('/'),
+  );
+  if (meaningful.length === 0) return [];
+
+  const selector = `${tag}.${meaningful.slice(0, 3).join('.')}`;
+  try {
+    return [...el.ownerDocument.querySelectorAll(selector)].filter(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && node !== el && node.isConnected,
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function isFlexOrGrid(el: HTMLElement): boolean {
+  const display = (el.ownerDocument.defaultView ?? window)
+    .getComputedStyle(el)
+    .display;
+  return display.includes('flex') || display.includes('grid');
+}

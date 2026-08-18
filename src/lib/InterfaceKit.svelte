@@ -2,11 +2,13 @@
 	import { onMount } from 'svelte';
 	import type { InterfaceKitController, InterfaceKitOptions } from 'interface-kit';
 	import { enableAlignmentGuides } from './alignmentGuides.js';
+	import { enableApplyScope } from './applyScope.js';
 	import { enableCraftSelect } from './craftSelect.js';
 	import { enableDistanceGuides } from './distanceGuides.js';
 	import { enableInspectorDrag } from './inspectorDrag.js';
 	import { enableMoveSelected } from './moveSelected.js';
 	import { enableSelectAncestry } from './selectAncestry.js';
+	import { enableSelectionChrome } from './selectionChrome.js';
 	import { enableStyleState } from './styleState.js';
 
 	// Set `enabled` explicitly: otherwise the package falls back to
@@ -68,6 +70,8 @@
 		let disposeDistanceGuides: (() => void) | null = null;
 		let disposeSelectAncestry: (() => void) | null = null;
 		let disposeStyleState: (() => void) | null = null;
+		let disposeApplyScope: (() => void) | null = null;
+		let disposeSelectionChrome: (() => void) | null = null;
 		let disposeCraftSelect: (() => void) | null = null;
 		const doc = options.ownerDocument ?? document;
 
@@ -91,6 +95,8 @@
 			disposeDistanceGuides = enableDistanceGuides(controller, doc);
 			disposeSelectAncestry = enableSelectAncestry(controller, doc);
 			disposeStyleState = enableStyleState(controller, doc);
+			disposeApplyScope = enableApplyScope(controller, doc);
+			disposeSelectionChrome = enableSelectionChrome(controller, doc);
 			disposeCraftSelect = enableCraftSelect(doc);
 
 			// The shadow root only exists once React has mounted.
@@ -115,6 +121,8 @@
 			disposeDistanceGuides?.();
 			disposeSelectAncestry?.();
 			disposeStyleState?.();
+			disposeApplyScope?.();
+			disposeSelectionChrome?.();
 			disposeCraftSelect?.();
 			controller?.destroy();
 			controller = null;

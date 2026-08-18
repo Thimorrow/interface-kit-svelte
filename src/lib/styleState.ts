@@ -8,48 +8,11 @@ import { tokenClass, tokenForValue } from './tokenColors.js';
 
 export type KitStyleState = 'rest' | 'hover' | 'focus';
 
-const STATES: KitStyleState[] = ['rest', 'hover', 'focus'];
-const STYLE_ID = 'interface-kit-state-styles';
 const PREVIEW_STYLE_ID = 'interface-kit-state-preview';
 const SPATIAL = new Set(['translate', 'width', 'height']);
 
-const SWITCHER_CSS = `[data-ik-state-switch] {
-  position: fixed;
-  z-index: 100000;
-  display: none;
-  pointer-events: auto;
-  padding: 3px;
-  border-radius: 9px;
-  background: #2a2a2a;
-  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.5);
-  font: 500 11px/1.2 ui-sans-serif, system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-[data-ik-state-switch] button {
-  margin: 0;
-  padding: 5px 9px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.55);
-  font: inherit;
-  cursor: pointer;
-}
-[data-ik-state-switch] button[aria-pressed="true"] {
-  background: #363636;
-  color: #fff;
-}
-@media (hover: hover) and (pointer: fine) {
-  [data-ik-state-switch] button:hover {
-    color: #fff;
-  }
-}
-[data-ik-state-switch] button:active {
-  transform: scale(0.97);
-}
-`;
-
 let styleState: KitStyleState = 'rest';
+const listeners = new Set<() => void>();
 const preview = new Map<string, Map<string, string>>();
 let previewSerial = 0;
 
@@ -57,53 +20,47 @@ export function getStyleState(): KitStyleState {
   return styleState;
 }
 
+export function setStyleState(next: KitStyleState): void {
+  if (styleState === next) return;
+  styleState = next;
+  for (const listener of listeners) listener();
+}
+
+export function subscribeStyleState(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 /**
- * Rest / Hover / Focus switcher on the selection rect. Inspector edits in
- * Hover/Focus land as hover: / focus: utilities so Copy as prompt can write
- * both states. Color values that match a :root token become var(--…).
+ * Inspector edits in Hover/Focus land as hover: / focus: utilities so
+ * Copy as prompt can write both states. Color values that match a :root
+ * token become var(--…). The Rest/Hover/Focus buttons live on the
+ * selection chrome.
  */
 export function enableStyleState(
   controller: InterfaceKitController,
   doc: Document,
 ): () => void {
-  const win = doc.defaultView ?? window;
-  const switcher = createSwitcher(doc);
-  const switcherStyle = ensureStyle(doc, STYLE_ID, SWITCHER_CSS);
   const previewStyle = ensureStyle(doc, PREVIEW_STYLE_ID, '');
-  doc.body.append(switcher);
 
-  let kitActive = false;
-  let editingText = false;
-  let overlayFrame = 0;
   let rewriting = false;
   let previous: StyleChange[] = [];
   let selectedKey: string | null = null;
   let marked: HTMLElement | null = null;
 
   const unsubscribe = controller.subscribe(onSnapshot);
+  const unsubState = subscribeStyleState(() => {
+    applyPreviewAttr(controller.getSelectedElement());
+  });
   onSnapshot(controller.getState());
 
   function onSnapshot(snapshot: InterfaceKitSnapshot): void {
-    kitActive = snapshot.isActive;
-    editingText = snapshot.isEditingText;
     const key = snapshot.selectedElement?.key ?? null;
     if (key !== selectedKey) {
       selectedKey = key;
-      setState('rest', true);
+      setStyleState('rest');
     }
     if (!rewriting) rewritePending(snapshot);
-    syncOverlay();
-  }
-
-  function setState(next: KitStyleState, silent = false): void {
-    if (styleState === next && silent) {
-      applyPreviewAttr(controller.getSelectedElement());
-      return;
-    }
-    styleState = next;
-    for (const btn of switcher.querySelectorAll('button')) {
-      btn.setAttribute('aria-pressed', String(btn.dataset.state === next));
-    }
     applyPreviewAttr(controller.getSelectedElement());
   }
 
@@ -193,65 +150,10 @@ export function enableStyleState(
     }
   }
 
-  function canShow(): boolean {
-    return kitActive && !editingText && Boolean(controller.getSelectedElement());
-  }
-
-  function syncOverlay(): void {
-    if (canShow()) {
-      if (overlayFrame === 0) overlayFrame = win.requestAnimationFrame(tick);
-      return;
-    }
-    stopOverlay();
-  }
-
-  function tick(): void {
-    overlayFrame = 0;
-    const el = controller.getSelectedElement();
-    if (!canShow() || !el) {
-      switcher.style.display = 'none';
-      return;
-    }
-    applyPreviewAttr(el);
-    const rect = el.getBoundingClientRect();
-    const width = switcher.offsetWidth || 168;
-    const left = Math.min(
-      win.innerWidth - width - 8,
-      Math.max(8, rect.left + rect.width / 2 - width / 2),
-    );
-    const above = rect.top - 36;
-    switcher.style.display = 'flex';
-    switcher.style.left = `${left}px`;
-    switcher.style.top = `${above > 8 ? above : rect.bottom + 10}px`;
-    overlayFrame = win.requestAnimationFrame(tick);
-  }
-
-  function stopOverlay(): void {
-    if (overlayFrame !== 0) {
-      win.cancelAnimationFrame(overlayFrame);
-      overlayFrame = 0;
-    }
-    switcher.style.display = 'none';
-  }
-
-  function onClick(event: MouseEvent): void {
-    const btn = event.target;
-    if (!(btn instanceof HTMLButtonElement) || !btn.dataset.state) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setState(btn.dataset.state as KitStyleState);
-  }
-
-  switcher.addEventListener('click', onClick, true);
-  switcher.addEventListener('pointerdown', (event) => event.stopPropagation(), true);
-
   return () => {
     unsubscribe();
-    stopOverlay();
+    unsubState();
     if (marked) marked.removeAttribute('data-ik-state');
-    switcher.removeEventListener('click', onClick, true);
-    switcher.remove();
-    switcherStyle.remove();
     previewStyle.remove();
     styleState = 'rest';
     preview.clear();
@@ -311,29 +213,6 @@ function writePreviewSheet(style: HTMLStyleElement): void {
     chunks.push(`[data-ik-preview-id="${id}"][data-ik-state="${state}"] { ${body}; }`);
   }
   style.textContent = chunks.join('\n');
-}
-
-function createSwitcher(doc: Document): HTMLDivElement {
-  const bar = doc.createElement('div');
-  bar.setAttribute('data-interface-kit', '');
-  bar.setAttribute('data-ik-state-switch', '');
-  bar.setAttribute('role', 'group');
-  bar.setAttribute('aria-label', 'Element state');
-  for (const state of STATES) {
-    const btn = doc.createElement('button');
-    btn.type = 'button';
-    btn.dataset.state = state;
-    btn.setAttribute('aria-pressed', String(state === 'rest'));
-    btn.textContent = labelFor(state);
-    bar.append(btn);
-  }
-  return bar;
-}
-
-function labelFor(state: KitStyleState): string {
-  if (state === 'rest') return 'Rest';
-  if (state === 'hover') return 'Hover';
-  return 'Focus';
 }
 
 function ensureStyle(doc: Document, id: string, css: string): HTMLStyleElement {
