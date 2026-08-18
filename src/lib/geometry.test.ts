@@ -4,7 +4,14 @@ import { describe, it } from 'node:test';
 
 import { measureDistances } from './distanceGeometry.js';
 import { styleFromDistance } from './distanceApply.js';
-import { NO_SNAP, SNAP_THRESHOLD_PX, snapRect } from './snapGeometry.js';
+import {
+  createSnapStick,
+  NO_SNAP,
+  SNAP_THRESHOLD_PX,
+  snapRect,
+  snapRectSticky,
+  snapResizeSticky,
+} from './snapGeometry.js';
 import { chromeHint, isApplePlatform, skipSnapFrom } from './kitModifiers.js';
 
 const box = (
@@ -31,6 +38,58 @@ describe('snapRect', () => {
 
   it('uses a 6px threshold', () => {
     assert.equal(SNAP_THRESHOLD_PX, 6);
+  });
+});
+
+describe('snapRectSticky', () => {
+  const target = box(0, 0, 200, 80);
+
+  it('catches the same 5px offset as snapRect', () => {
+    const stick = createSnapStick();
+    const snap = snapRectSticky(box(205, 0, 200, 80), [target], stick);
+    assert.equal(snap.dx, -5);
+    assert.equal(stick.x.lock, 200);
+  });
+
+  it('holds past the catch threshold until resistance is spent', () => {
+    const stick = createSnapStick();
+    snapRectSticky(box(205, 0, 200, 80), [target], stick);
+    const held = snapRectSticky(box(210, 0, 200, 80), [target], stick);
+    assert.equal(held.dx, -10);
+    assert.ok(held.vertical.includes('left'));
+    assert.equal(stick.x.lock, 200);
+  });
+
+  it('breaks without jumping to the cursor', () => {
+    const stick = createSnapStick();
+    snapRectSticky(box(205, 0, 200, 80), [target], stick);
+    const released = snapRectSticky(box(215, 0, 200, 80), [target], stick);
+    // 215 is 15px past the line; hold is 6+8=14, so visual sits 1px past.
+    assert.equal(215 + released.dx, 201);
+    assert.equal(stick.x.lock, null);
+    assert.deepEqual(released.vertical, []);
+  });
+
+  it('does not recatch the same line on the next pixel', () => {
+    const stick = createSnapStick();
+    snapRectSticky(box(205, 0, 200, 80), [target], stick);
+    snapRectSticky(box(215, 0, 200, 80), [target], stick);
+    const next = snapRectSticky(box(216, 0, 200, 80), [target], stick);
+    assert.equal(216 + next.dx, 202);
+    assert.equal(stick.x.lock, null);
+  });
+});
+
+describe('snapResizeSticky', () => {
+  const target = box(0, 0, 200, 80);
+
+  it('holds a dragged right edge on the snap', () => {
+    const stick = createSnapStick();
+    snapResizeSticky(box(0, 0, 205, 80), 'e', [target], stick);
+    const held = snapResizeSticky(box(0, 0, 210, 80), 'e', [target], stick);
+    assert.equal(held.dWidth, -10);
+    assert.ok(held.vertical.includes('right'));
+    assert.equal(stick.x.lock, 200);
   });
 });
 

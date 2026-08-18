@@ -1,5 +1,13 @@
 import type { InterfaceKitController, InterfaceKitSnapshot } from 'interface-kit';
 
+import {
+  createAxis,
+  jumpAxis,
+  prefersReducedMotion,
+  tickAxes,
+  type SpringAxis,
+} from './dragSpring.js';
+
 const STYLE_ID = 'interface-kit-inspector-drag';
 const HANDLE_ATTR = 'data-ik-inspector-handle';
 const KIT_ATTR = 'data-interface-kit';
@@ -51,6 +59,10 @@ export function enableInspectorDrag(
   let prevCursor = '';
   let prevUserSelect = '';
   let bodyStyled = false;
+  let releasing = false;
+  let springFrame = 0;
+  let springLast = 0;
+  let motion: { x: SpringAxis; y: SpringAxis } | null = null;
 
   const unsubscribe = controller.subscribe(onSnapshot);
   onSnapshot(controller.getState());
@@ -74,6 +86,10 @@ export function enableInspectorDrag(
     kitActive = snapshot.isActive;
     if (!kitActive) {
       if (wasActive || offset.x !== 0 || offset.y !== 0) {
+        stopSpringLoop();
+        motion = null;
+        releasing = false;
+        gesture = null;
         offset = { x: 0, y: 0 };
         applyOffset();
       }
@@ -105,10 +121,11 @@ export function enableInspectorDrag(
     if (kitActive && handle) handle.setAttribute(HANDLE_ATTR, '');
   }
 
-  function applyOffset(): void {
+  function applyOffset(round = true): void {
     if (!shadow) return;
-    const value =
-      offset.x === 0 && offset.y === 0 ? '' : `${offset.x}px ${offset.y}px`;
+    const x = round ? Math.round(offset.x) : Number(offset.x.toFixed(2));
+    const y = round ? Math.round(offset.y) : Number(offset.y.toFixed(2));
+    const value = x === 0 && y === 0 ? '' : `${x}px ${y}px`;
     for (const el of movablePanels(shadow)) {
       el.style.translate = value;
     }
@@ -130,6 +147,75 @@ export function enableInspectorDrag(
     bodyStyled = false;
   }
 
+  function stopSpringLoop(): void {
+    if (springFrame !== 0) {
+      win.cancelAnimationFrame(springFrame);
+      springFrame = 0;
+    }
+    springLast = 0;
+  }
+
+  function beginMotion(x: number, y: number): void {
+    stopSpringLoop();
+    if (prefersReducedMotion(win)) {
+      motion = null;
+      return;
+    }
+    motion = { x: createAxis(x), y: createAxis(y) };
+    kickSpring();
+  }
+
+  function kickSpring(): void {
+    if (springFrame !== 0 || !motion) return;
+    springLast = 0;
+    springFrame = win.requestAnimationFrame(onSpringFrame);
+  }
+
+  function applyMotion(round: boolean): void {
+    if (!motion) return;
+    offset = { x: motion.x.current, y: motion.y.current };
+    applyOffset(round);
+  }
+
+  function onSpringFrame(now: number): void {
+    springFrame = 0;
+    if (!motion) return;
+
+    const dt =
+      springLast === 0 ? 1 / 60 : Math.min(0.064, (now - springLast) / 1000);
+    springLast = now;
+
+    const reduced = prefersReducedMotion(win);
+    if (reduced) {
+      jumpAxis(motion.x, motion.x.target);
+      jumpAxis(motion.y, motion.y.target);
+    }
+
+    const settled = reduced || tickAxes([motion.x, motion.y], dt);
+    applyMotion(settled && releasing);
+
+    if (!settled) {
+      springFrame = win.requestAnimationFrame(onSpringFrame);
+      return;
+    }
+
+    if (releasing) {
+      motion = null;
+      gesture = null;
+      releasing = false;
+      springLast = 0;
+    }
+  }
+
+  function settleIfReleasing(): void {
+    if (!releasing) return;
+    applyMotion(true);
+    stopSpringLoop();
+    motion = null;
+    gesture = null;
+    releasing = false;
+  }
+
   function bindDrag(): void {
     doc.addEventListener('pointermove', onPointerMove, true);
     doc.addEventListener('pointerup', onPointerUp, true);
@@ -143,6 +229,7 @@ export function enableInspectorDrag(
   }
 
   function onPointerDown(event: PointerEvent): void {
+    settleIfReleasing();
     if (!kitActive || event.button !== 0) return;
     if (gesture) return;
 
@@ -171,6 +258,7 @@ export function enableInspectorDrag(
       if (Math.abs(dx) + Math.abs(dy) <= DRAG_THRESHOLD) return;
       gesture.started = true;
       beginBodyStyle();
+      beginMotion(offset.x, offset.y);
       try {
         gesture.handle.setPointerCapture(event.pointerId);
       } catch {
@@ -179,14 +267,21 @@ export function enableInspectorDrag(
     }
 
     event.preventDefault();
-    offset = clampToViewport(
+    const next = clampToViewport(
       gesture.baseX + dx,
       gesture.baseY + dy,
       gesture.handle,
-      offset,
+      { x: motion?.x.current ?? offset.x, y: motion?.y.current ?? offset.y },
       win,
     );
-    applyOffset();
+    if (!motion) {
+      offset = next;
+      applyOffset();
+      return;
+    }
+    motion.x.target = next.x;
+    motion.y.target = next.y;
+    kickSpring();
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -207,13 +302,33 @@ export function enableInspectorDrag(
 
     unbindDrag();
     restoreBodyStyles();
-    gesture = null;
+
+    if (!started) {
+      gesture = null;
+      return;
+    }
+
+    if (!motion) {
+      offset = {
+        x: Math.round(offset.x),
+        y: Math.round(offset.y),
+      };
+      applyOffset();
+      gesture = null;
+      return;
+    }
+
+    releasing = true;
+    kickSpring();
   }
 
   function cancelGesture(): void {
     if (!gesture) return;
     offset = { x: gesture.baseX, y: gesture.baseY };
     applyOffset();
+    stopSpringLoop();
+    motion = null;
+    releasing = false;
     unbindDrag();
     restoreBodyStyles();
     gesture = null;
@@ -230,7 +345,20 @@ export function enableInspectorDrag(
     if (!kitActive || !shadow) return;
     const handle = findToolbar(shadow);
     if (!handle) return;
-    offset = clampToViewport(offset.x, offset.y, handle, offset, win);
+    const current = {
+      x: motion?.x.current ?? offset.x,
+      y: motion?.y.current ?? offset.y,
+    };
+    const desired = {
+      x: motion?.x.target ?? offset.x,
+      y: motion?.y.target ?? offset.y,
+    };
+    const next = clampToViewport(desired.x, desired.y, handle, current, win);
+    if (motion) {
+      jumpAxis(motion.x, next.x);
+      jumpAxis(motion.y, next.y);
+    }
+    offset = next;
     applyOffset();
   }
 
@@ -241,6 +369,7 @@ export function enableInspectorDrag(
   return () => {
     unsubscribe();
     unbindDrag();
+    stopSpringLoop();
     restoreBodyStyles();
     win.removeEventListener('pointerdown', onPointerDown, true);
     win.removeEventListener('keydown', onKeyDown, true);

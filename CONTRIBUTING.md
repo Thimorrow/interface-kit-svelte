@@ -14,7 +14,7 @@ npm test
 npm run check
 ```
 
-`npm test` covers snap, distance writes and modifier keys. `npm run check` is `svelte-check`.
+`npm test` covers snap, distance writes, modifier keys and the drag spring. `npm run check` is `svelte-check`.
 
 ## Pull requests
 

@@ -5,11 +5,14 @@ import type {
 
 import {
   collectSnapTargets,
+  createSnapStick,
   NO_SNAP,
+  resetSnapStick,
   setActiveSnap,
-  snapRect,
-  snapResize,
+  snapRectSticky,
+  snapResizeSticky,
   type AlignRect,
+  type SnapStick,
 } from './snapGeometry.js';
 import {
   MIN_SIZE_PX,
@@ -21,6 +24,13 @@ import {
   type TransformBox,
   type Translate,
 } from './transformGeometry.js';
+import {
+  createAxis,
+  jumpAxis,
+  prefersReducedMotion,
+  tickAxes,
+  type SpringAxis,
+} from './dragSpring.js';
 import { isSkipSnapKey, skipSnapFrom } from './kitModifiers.js';
 
 const OVERLAY_PAD = 8;
@@ -201,9 +211,14 @@ export function enableMoveSelected(
     };
   }
 
-  function moveTo(el: HTMLElement, x: number, y: number): void {
-    const nextX = Math.round(x);
-    const nextY = Math.round(y);
+  function moveTo(
+    el: HTMLElement,
+    x: number,
+    y: number,
+    round = true,
+  ): void {
+    const nextX = round ? Math.round(x) : Number(x.toFixed(2));
+    const nextY = round ? Math.round(y) : Number(y.toFixed(2));
     lastTranslate = { el, x: nextX, y: nextY };
     controller.applyStyleGroup(
       [el],
@@ -218,23 +233,26 @@ export function enableMoveSelected(
     width: number,
     height: number,
     axes: { width: boolean; height: boolean },
+    round = true,
   ): void {
     if (axes.width) {
-      lastWidth = { el, width };
+      const next = round ? Math.round(width) : Number(width.toFixed(2));
+      lastWidth = { el, width: next };
       controller.applyStyleGroup(
         [el],
         'width',
-        `${width}px`,
-        sizeClass('width', width),
+        `${next}px`,
+        sizeClass('width', next),
       );
     }
     if (axes.height) {
-      lastHeight = { el, height };
+      const next = round ? Math.round(height) : Number(height.toFixed(2));
+      lastHeight = { el, height: next };
       controller.applyStyleGroup(
         [el],
         'height',
-        `${height}px`,
-        sizeClass('height', height),
+        `${next}px`,
+        sizeClass('height', next),
       );
     }
   }
@@ -243,9 +261,10 @@ export function enableMoveSelected(
     el: HTMLElement,
     box: TransformBox,
     axes: { translate: boolean; width: boolean; height: boolean },
+    round = true,
   ): void {
-    if (axes.translate) moveTo(el, box.x, box.y);
-    sizeTo(el, box.width, box.height, axes);
+    if (axes.translate) moveTo(el, box.x, box.y, round);
+    sizeTo(el, box.width, box.height, axes, round);
   }
 
   // --- Gestures ---
@@ -261,6 +280,7 @@ export function enableMoveSelected(
         baseWasSet: boolean;
         startRect: AlignRect;
         targets: AlignRect[];
+        stick: SnapStick;
       }
     | {
         kind: 'resize';
@@ -272,6 +292,7 @@ export function enableMoveSelected(
         base: TransformBox;
         startRect: AlignRect;
         targets: AlignRect[];
+        stick: SnapStick;
         widthWasSet: boolean;
         heightWasSet: boolean;
         translateWasSet: boolean;
@@ -283,6 +304,15 @@ export function enableMoveSelected(
   let prevCursor = '';
   let prevUserSelect = '';
   let bodyStyled = false;
+  let releasing = false;
+  let springFrame = 0;
+  let springLast = 0;
+  let motion: {
+    x: SpringAxis;
+    y: SpringAxis;
+    width: SpringAxis;
+    height: SpringAxis;
+  } | null = null;
 
   function beginBodyStyle(cursor: string): void {
     if (bodyStyled) return;
@@ -298,6 +328,98 @@ export function enableMoveSelected(
     doc.body.style.cursor = prevCursor;
     doc.body.style.userSelect = prevUserSelect;
     bodyStyled = false;
+  }
+
+  function stopSpringLoop(): void {
+    if (springFrame !== 0) {
+      win.cancelAnimationFrame(springFrame);
+      springFrame = 0;
+    }
+    springLast = 0;
+  }
+
+  function beginMotion(base: TransformBox): void {
+    stopSpringLoop();
+    if (prefersReducedMotion(win)) {
+      motion = null;
+      return;
+    }
+    motion = {
+      x: createAxis(base.x),
+      y: createAxis(base.y),
+      width: createAxis(base.width),
+      height: createAxis(base.height),
+    };
+    kickSpring();
+  }
+
+  function kickSpring(): void {
+    if (springFrame !== 0 || !motion) return;
+    springLast = 0;
+    springFrame = win.requestAnimationFrame(onSpringFrame);
+  }
+
+  function applyMotion(round: boolean): void {
+    if (!motion || !gesture) return;
+    if (gesture.kind === 'move') {
+      moveTo(gesture.el, motion.x.current, motion.y.current, round);
+      return;
+    }
+    applyBox(
+      gesture.el,
+      {
+        x: motion.x.current,
+        y: motion.y.current,
+        width: motion.width.current,
+        height: motion.height.current,
+      },
+      gesture.axes,
+      round,
+    );
+  }
+
+  function onSpringFrame(now: number): void {
+    springFrame = 0;
+    if (!motion || !gesture) return;
+
+    const dt =
+      springLast === 0 ? 1 / 60 : Math.min(0.064, (now - springLast) / 1000);
+    springLast = now;
+
+    const reduced = prefersReducedMotion(win);
+    if (reduced) {
+      jumpAxis(motion.x, motion.x.target);
+      jumpAxis(motion.y, motion.y.target);
+      jumpAxis(motion.width, motion.width.target);
+      jumpAxis(motion.height, motion.height.target);
+    }
+
+    const settled =
+      reduced ||
+      tickAxes([motion.x, motion.y, motion.width, motion.height], dt);
+
+    applyMotion(settled && releasing);
+
+    if (!settled) {
+      springFrame = win.requestAnimationFrame(onSpringFrame);
+      return;
+    }
+
+    if (releasing) {
+      motion = null;
+      gesture = null;
+      releasing = false;
+      springLast = 0;
+    }
+  }
+
+  function settleIfReleasing(): void {
+    if (!releasing) return;
+    applyMotion(true);
+    stopSpringLoop();
+    motion = null;
+    gesture = null;
+    releasing = false;
   }
 
   function bindDrag(): void {
@@ -324,6 +446,7 @@ export function enableMoveSelected(
   }
 
   function onHandlePointerDown(event: PointerEvent): void {
+    settleIfReleasing();
     if (!canTransform() || event.button !== 0) return;
     if (kitDraggingStyle) return;
     const handle = handleFromEvent(event);
@@ -344,6 +467,12 @@ export function enableMoveSelected(
       width: handle.includes('e') || handle.includes('w'),
       height: handle.includes('n') || handle.includes('s'),
     };
+    const base = {
+      x: translate.translate.x,
+      y: translate.translate.y,
+      width: size.width,
+      height: size.height,
+    };
 
     gesture = {
       kind: 'resize',
@@ -352,12 +481,7 @@ export function enableMoveSelected(
       handle,
       startX: event.clientX,
       startY: event.clientY,
-      base: {
-        x: translate.translate.x,
-        y: translate.translate.y,
-        width: size.width,
-        height: size.height,
-      },
+      base,
       startRect: {
         left: box.left,
         top: box.top,
@@ -368,6 +492,7 @@ export function enableMoveSelected(
         width: win.innerWidth,
         height: win.innerHeight,
       }),
+      stick: createSnapStick(),
       widthWasSet: size.widthWasSet,
       heightWasSet: size.heightWasSet,
       translateWasSet: translate.wasSet,
@@ -376,10 +501,12 @@ export function enableMoveSelected(
 
     controller.startStyleInteraction();
     beginBodyStyle(cursorFor(handle));
+    beginMotion(base);
     bindDrag();
   }
 
   function onPointerDown(event: PointerEvent): void {
+    settleIfReleasing();
     if (!canTransform() || event.button !== 0) return;
     if (kitDraggingStyle) return;
     if (isOurHandle(event)) return;
@@ -410,6 +537,7 @@ export function enableMoveSelected(
         width: win.innerWidth,
         height: win.innerHeight,
       }),
+      stick: createSnapStick(),
     };
     bindDrag();
   }
@@ -427,6 +555,12 @@ export function enableMoveSelected(
         gesture.started = true;
         controller.startStyleInteraction();
         beginBodyStyle('move');
+        beginMotion({
+          x: gesture.base.x,
+          y: gesture.base.y,
+          width: gesture.startRect.width,
+          height: gesture.startRect.height,
+        });
       }
       event.preventDefault();
       applyMove(gesture, dx, dy, skipSnapFrom(event));
@@ -449,9 +583,19 @@ export function enableMoveSelected(
       width: current.startRect.width,
       height: current.startRect.height,
     };
-    const snap = skipSnap ? NO_SNAP : snapRect(proposed, current.targets);
+    let snap = NO_SNAP;
+    if (skipSnap) resetSnapStick(current.stick);
+    else snap = snapRectSticky(proposed, current.targets, current.stick);
     setActiveSnap(snap);
-    moveTo(current.el, current.base.x + dx + snap.dx, current.base.y + dy + snap.dy);
+    const x = Math.round(current.base.x + dx + snap.dx);
+    const y = Math.round(current.base.y + dy + snap.dy);
+    if (!motion) {
+      moveTo(current.el, x, y);
+      return;
+    }
+    motion.x.target = x;
+    motion.y.target = y;
+    kickSpring();
   }
 
   function applyResize(
@@ -471,20 +615,32 @@ export function enableMoveSelected(
       width: next.width,
       height: next.height,
     };
-    const snap = skipSnap
-      ? NO_SNAP
-      : snapResize(proposed, current.handle, current.targets);
+    let snap = NO_SNAP;
+    if (skipSnap) resetSnapStick(current.stick);
+    else {
+      snap = snapResizeSticky(
+        proposed,
+        current.handle,
+        current.targets,
+        current.stick,
+      );
+    }
     setActiveSnap(snap);
-    applyBox(
-      current.el,
-      {
-        x: next.x + snap.dx,
-        y: next.y + snap.dy,
-        width: next.width + snap.dWidth,
-        height: next.height + snap.dHeight,
-      },
-      current.axes,
-    );
+    const box = {
+      x: next.x + snap.dx,
+      y: next.y + snap.dy,
+      width: next.width + snap.dWidth,
+      height: next.height + snap.dHeight,
+    };
+    if (!motion) {
+      applyBox(current.el, box, current.axes);
+      return;
+    }
+    motion.x.target = box.x;
+    motion.y.target = box.y;
+    motion.width.target = box.width;
+    motion.height.target = box.height;
+    kickSpring();
   }
 
   function replayGesture(skipSnap: boolean, shiftKey: boolean): void {
@@ -508,22 +664,40 @@ export function enableMoveSelected(
     restoreBodyStyles();
     endMoveSnap();
 
-    if (gesture && (gesture.kind === 'resize' || gesture.started)) {
-      controller.endStyleInteraction();
-      swallowNextClick();
+    if (!gesture || (gesture.kind === 'move' && !gesture.started)) {
+      stopSpringLoop();
+      motion = null;
+      gesture = null;
+      releasing = false;
+      return;
     }
 
-    gesture = null;
+    swallowNextClick();
+    controller.endStyleInteraction();
+
+    if (!motion) {
+      gesture = null;
+      releasing = false;
+      return;
+    }
+
+    releasing = true;
+    kickSpring();
   }
 
   function cancelGesture(): void {
     if (!gesture) return;
 
     const current = gesture;
+    const wasLive = !releasing;
     unbindDrag();
     restoreBodyStyles();
     endMoveSnap();
-    controller.endStyleInteraction();
+    stopSpringLoop();
+    motion = null;
+    releasing = false;
+    gesture = null;
+    if (wasLive) controller.endStyleInteraction();
 
     if (current.kind === 'move') {
       if (current.baseWasSet) {
@@ -535,8 +709,6 @@ export function enableMoveSelected(
     } else {
       revertResize(current);
     }
-
-    gesture = null;
   }
 
   function revertResize(current: Extract<Gesture, { kind: 'resize' }>): void {
@@ -612,6 +784,7 @@ export function enableMoveSelected(
     }
 
     if (!canTransform()) return;
+    settleIfReleasing();
     if (
       event.key !== 'ArrowLeft' &&
       event.key !== 'ArrowRight' &&
@@ -653,6 +826,7 @@ export function enableMoveSelected(
     unsubscribe();
     stopOverlay();
     unbindDrag();
+    stopSpringLoop();
     restoreBodyStyles();
     endMoveSnap();
     overlay.removeEventListener('pointerdown', onHandlePointerDown, true);
