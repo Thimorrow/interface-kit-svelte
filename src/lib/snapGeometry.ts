@@ -28,6 +28,14 @@ export interface SnapResult {
 /** How close an edge must be before it catches. Small on purpose: a hint, not a magnet. */
 export const SNAP_THRESHOLD_PX = 6;
 
+/**
+ * Extra mouse travel, past the snap line, before the magnet lets go.
+ * Combined with the catch threshold this is the well you push through
+ * when you want to keep going. Origin-warped on release so the box
+ * continues from the line instead of jumping to the cursor.
+ */
+export const SNAP_RESISTANCE_PX = 8;
+
 export const NO_SNAP: SnapResult = {
   dx: 0,
   dy: 0,
@@ -36,6 +44,36 @@ export const NO_SNAP: SnapResult = {
   vertical: [],
   horizontal: [],
 };
+
+export interface AxisStick {
+  /** Screen-space coordinate the axis is held to, or null when free. */
+  lock: number | null;
+  /** Persistent origin warp so breaking the magnet does not jump. */
+  shift: number;
+  /** Line we just left; do not recatch it until we leave the catch zone. */
+  ignore: number | null;
+}
+
+export interface SnapStick {
+  x: AxisStick;
+  y: AxisStick;
+}
+
+export function createSnapStick(): SnapStick {
+  return {
+    x: { lock: null, shift: 0, ignore: null },
+    y: { lock: null, shift: 0, ignore: null },
+  };
+}
+
+export function resetSnapStick(stick: SnapStick): void {
+  stick.x.lock = null;
+  stick.x.shift = 0;
+  stick.x.ignore = null;
+  stick.y.lock = null;
+  stick.y.shift = 0;
+  stick.y.ignore = null;
+}
 
 const X_EDGES: SnapEdgeX[] = ['left', 'center', 'right'];
 const Y_EDGES: SnapEdgeY[] = ['top', 'center', 'bottom'];
@@ -134,6 +172,80 @@ export function snapRect(
 }
 
 /**
+ * `snapRect` plus a per-gesture magnet: once an axis catches, the box
+ * stays on that line until the pointer pushes `threshold + resistance`
+ * past it. Breaking warps `stick` so the next frames continue from the
+ * line instead of leaping to the cursor.
+ */
+export function snapRectSticky(
+  moving: AlignRect,
+  targets: AlignRect[],
+  stick: SnapStick,
+  threshold: number = SNAP_THRESHOLD_PX,
+  resistance: number = SNAP_RESISTANCE_PX,
+): SnapResult {
+  const hold = threshold + resistance;
+  let left = releaseIfPushed(moving.left + stick.x.shift, stick.x, hold);
+  let top = releaseIfPushed(moving.top + stick.y.shift, stick.y, hold);
+  clearIgnore(left, stick.x, threshold);
+  clearIgnore(top, stick.y, threshold);
+
+  const trial: AlignRect = {
+    left,
+    top,
+    width: moving.width,
+    height: moving.height,
+  };
+  const caught = snapRect(trial, targets, threshold);
+
+  if (stick.x.lock === null) {
+    const snappedLeft = trial.left + caught.dx;
+    if (caught.vertical.length > 0 && !sameLine(snappedLeft, stick.x.ignore)) {
+      stick.x.lock = snappedLeft;
+      left = snappedLeft;
+    }
+  } else {
+    left = stick.x.lock;
+  }
+
+  if (stick.y.lock === null) {
+    const snappedTop = trial.top + caught.dy;
+    if (caught.horizontal.length > 0 && !sameLine(snappedTop, stick.y.ignore)) {
+      stick.y.lock = snappedTop;
+      top = snappedTop;
+    }
+  } else {
+    top = stick.y.lock;
+  }
+
+  const dx = left - moving.left;
+  const dy = top - moving.top;
+  if (
+    dx === 0 &&
+    dy === 0 &&
+    stick.x.lock === null &&
+    stick.y.lock === null
+  ) {
+    return NO_SNAP;
+  }
+
+  const snapped: AlignRect = {
+    left,
+    top,
+    width: moving.width,
+    height: moving.height,
+  };
+  return {
+    dx,
+    dy,
+    dWidth: 0,
+    dHeight: 0,
+    vertical: matchingX(snapped, targets),
+    horizontal: matchingY(snapped, targets),
+  };
+}
+
+/**
  * Snap the edges a resize handle is dragging. The opposite edge stays put
  * (no 8px grid, no parent padding). Centers of the moving box can catch too.
  */
@@ -202,6 +314,152 @@ export function snapResize(
     vertical: matchingX(snapped, targets),
     horizontal: matchingY(snapped, targets),
   };
+}
+
+/** Same magnet as `snapRectSticky`, applied to the edges the handle moves. */
+export function snapResizeSticky(
+  moving: AlignRect,
+  handle: ResizeHandle,
+  targets: AlignRect[],
+  stick: SnapStick,
+  threshold: number = SNAP_THRESHOLD_PX,
+  resistance: number = SNAP_RESISTANCE_PX,
+  minSize: number = MIN_SIZE_PX,
+): SnapResult {
+  const hold = threshold + resistance;
+  const moves = handleMoves(handle);
+
+  let left = moving.left + (moves.left ? stick.x.shift : 0);
+  let top = moving.top + (moves.top ? stick.y.shift : 0);
+  let right =
+    moving.left + moving.width + (moves.right ? stick.x.shift : 0);
+  let bottom =
+    moving.top + moving.height + (moves.bottom ? stick.y.shift : 0);
+
+  if (moves.left || moves.right) {
+    const next = releaseIfPushed(moves.left ? left : right, stick.x, hold);
+    if (moves.left) left = next;
+    else right = next;
+    clearIgnore(next, stick.x, threshold);
+  }
+  if (moves.top || moves.bottom) {
+    const next = releaseIfPushed(moves.top ? top : bottom, stick.y, hold);
+    if (moves.top) top = next;
+    else bottom = next;
+    clearIgnore(next, stick.y, threshold);
+  }
+
+  const trial: AlignRect = {
+    left,
+    top,
+    width: Math.max(right - left, minSize),
+    height: Math.max(bottom - top, minSize),
+  };
+  const caught = snapResize(trial, handle, targets, threshold, minSize);
+
+  if (moves.left || moves.right) {
+    const snappedLeft = trial.left + caught.dx;
+    const snappedRight = snappedLeft + trial.width + caught.dWidth;
+    const snappedEdge = moves.left ? snappedLeft : snappedRight;
+    if (stick.x.lock === null) {
+      if (
+        caught.vertical.length > 0 &&
+        !sameLine(snappedEdge, stick.x.ignore)
+      ) {
+        stick.x.lock = snappedEdge;
+        if (moves.left) left = snappedEdge;
+        else right = snappedEdge;
+      }
+    } else if (moves.left) {
+      left = stick.x.lock;
+    } else {
+      right = stick.x.lock;
+    }
+  }
+
+  if (moves.top || moves.bottom) {
+    const snappedTop = trial.top + caught.dy;
+    const snappedBottom = snappedTop + trial.height + caught.dHeight;
+    const snappedEdge = moves.top ? snappedTop : snappedBottom;
+    if (stick.y.lock === null) {
+      if (
+        caught.horizontal.length > 0 &&
+        !sameLine(snappedEdge, stick.y.ignore)
+      ) {
+        stick.y.lock = snappedEdge;
+        if (moves.top) top = snappedEdge;
+        else bottom = snappedEdge;
+      }
+    } else if (moves.top) {
+      top = stick.y.lock;
+    } else {
+      bottom = stick.y.lock;
+    }
+  }
+
+  if (right - left < minSize) {
+    if (moves.right && !moves.left) right = left + minSize;
+    else if (moves.left && !moves.right) left = right - minSize;
+  }
+  if (bottom - top < minSize) {
+    if (moves.bottom && !moves.top) bottom = top + minSize;
+    else if (moves.top && !moves.bottom) top = bottom - minSize;
+  }
+
+  const dx = left - moving.left;
+  const dy = top - moving.top;
+  const dWidth = right - left - moving.width;
+  const dHeight = bottom - top - moving.height;
+  if (
+    dx === 0 &&
+    dy === 0 &&
+    dWidth === 0 &&
+    dHeight === 0 &&
+    stick.x.lock === null &&
+    stick.y.lock === null
+  ) {
+    return NO_SNAP;
+  }
+
+  const snapped: AlignRect = {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  };
+  return {
+    dx,
+    dy,
+    dWidth,
+    dHeight,
+    vertical: matchingX(snapped, targets),
+    horizontal: matchingY(snapped, targets),
+  };
+}
+
+function releaseIfPushed(
+  pos: number,
+  axis: AxisStick,
+  hold: number,
+): number {
+  if (axis.lock === null) return pos;
+  const dist = pos - axis.lock;
+  if (Math.abs(dist) <= hold) return axis.lock;
+  const dir = dist > 0 ? 1 : -1;
+  axis.shift -= dir * hold;
+  axis.ignore = axis.lock;
+  axis.lock = null;
+  return pos - dir * hold;
+}
+
+function clearIgnore(pos: number, axis: AxisStick, threshold: number): void {
+  if (axis.ignore !== null && Math.abs(pos - axis.ignore) > threshold) {
+    axis.ignore = null;
+  }
+}
+
+function sameLine(value: number, ignore: number | null): boolean {
+  return ignore !== null && Math.abs(value - ignore) < 0.51;
 }
 
 function snapAxis(
